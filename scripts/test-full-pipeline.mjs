@@ -135,18 +135,40 @@ function groupProducts(products) {
 }
 
 // アソート候補を「原価合計が単価上限(1000)に収まる」チャンクに貪欲分割する。
-// 例) 単価260×8商品 → [3個(780)][3個(780)][2個(520)] の3アソート。
-//     単価150×4商品 → [4個(600)] の1アソート。
-function chunkByCap(products) {
-  const chunks = [];
-  let cur = [], sum = 0;
-  for (const p of products) {
-    const c = p.cost ?? 0;
-    if (cur.length > 0 && sum + c > S.unitPriceCap) { chunks.push(cur); cur = []; sum = 0; }
-    cur.push(p); sum += c;
+// k個の組み合わせを列挙
+function combinations(arr, k) {
+  if (k <= 0) return [[]];
+  if (k > arr.length) return [];
+  const res = [];
+  const rec = (start, cur) => {
+    if (cur.length === k) { res.push([...cur]); return; }
+    for (let i = start; i < arr.length; i++) { cur.push(arr[i]); rec(i + 1, cur); cur.pop(); }
+  };
+  rec(0, []);
+  return res;
+}
+
+// アソート企画を生成する。
+// 単価合計(≤1000)と最小ロット原価(≤33,000)の両方を満たす最大の種類数 k を求め、
+// k種の組み合わせを企画化する（k=全種ならそのまま1案、未満なら C(n,k) を提案）。
+// 組み合わせが多すぎる場合（>MAX）は重複なしのチャンク分割にフォールバック。
+const MAX_COMBOS = 6;
+function planAssortCombos(products) {
+  const sorted = [...products].sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0));
+  let bestK = 0;
+  for (let k = products.length; k >= 2; k--) {
+    const subset = sorted.slice(0, k); // k個の最安サブセットで成立性チェック
+    const sz = sizeSets(subset.map(p => ({ cost: p.cost ?? 0, minLotQty: p.min_lot_qty ?? 1, ratio: 1 })));
+    if (sz.ok) { bestK = k; break; }
   }
-  if (cur.length) chunks.push(cur);
-  return chunks;
+  if (bestK === 0) return [];                 // 2種すら無理 → 単品扱い
+  if (bestK >= products.length) return [products]; // 全種で1アソート
+  const combos = combinations(products, bestK);
+  if (combos.length <= MAX_COMBOS) return combos;   // 全組み合わせを提案
+  // 多すぎる場合は重複なしチャンク（各商品1回ずつ）にフォールバック
+  const chunks = [];
+  for (let i = 0; i < products.length; i += bestK) chunks.push(products.slice(i, i + bestK));
+  return chunks.filter(c => c.length >= 2);
 }
 
 // ─── 画像抽出 ─────────────────────────────────────────────────────────────────
@@ -266,11 +288,13 @@ for(const sheetName of wb.SheetNames){
   console.log(`📋 ${sheetName}  メーカー: ${makerName}  商品: ${products.length}件`);
   console.log('─'.repeat(60));
 
-  // グルーピング → アソート候補を原価合計≤1000のチャンクに分割
+  // グルーピング → アソート企画を生成（最大k種、超えたらk-1種の組み合わせ）
   const rawGroups = groupProducts(products);
   const groups = rawGroups.flatMap(g => {
     if (g.isSingle || g.products.length <= 1) return [{ products: g.products, isSingle: true }];
-    return chunkByCap(g.products).map(c => ({ products: c, isSingle: c.length === 1 }));
+    const combos = planAssortCombos(g.products);
+    if (combos.length === 0) return g.products.map(p => ({ products: [p], isSingle: true }));
+    return combos.map(c => ({ products: c, isSingle: c.length === 1 }));
   });
 
   const assortN = groups.filter(g => !g.isSingle).length;
