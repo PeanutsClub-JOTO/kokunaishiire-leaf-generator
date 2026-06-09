@@ -1,0 +1,328 @@
+/**
+ * xlsxインポートハンドラ
+ *
+ * 1. Supabase Storage から xlsx ダウンロード
+ * 2. extractXlsxCells でセル値抽出
+ * 3. シート/商品/アソートグループ/リーフをDBに保存
+ * 4. extractXlsxImages で画像を商品に関連付け
+ */
+import { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../../lib/supabase/types';
+import { extractXlsxCells, type RawSheetData } from '../../lib/import/xlsx-cells';
+import { extractXlsxImages } from '../../lib/import/xlsx-images';
+import { groupProducts, type ProductForGrouping } from '../../lib/assort/grouping';
+import {
+  planSingle,
+  planAssort,
+  passes,
+  calcAlertFlags,
+  type Settings,
+  type AssortType,
+  DEFAULT_SETTINGS,
+} from '../../lib/calc/engine';
+
+type Supabase = SupabaseClient<Database>;
+type Job = Database['public']['Tables']['jobs']['Row'];
+
+export async function loadSettings(supabase: Supabase): Promise<Settings> {
+  const { data } = await supabase.from('app_settings').select('key, value');
+  const s = { ...DEFAULT_SETTINGS };
+  for (const row of data ?? []) {
+    switch (row.key) {
+      case 'profit_coef':    s.profitCoef   = row.value; break;
+      case 'sales_add':      s.salesAdd     = row.value; break;
+      case 'unit_price_cap': s.unitPriceCap = row.value; break;
+      case 'cost_cap':       s.costCap      = row.value; break;
+      case 'half_base':      s.halfBase     = row.value; break;
+      case 'shelf_min_days': s.shelfMinDays = row.value; break;
+    }
+  }
+  return s;
+}
+
+// YYYY-MM-DD をローカル時刻の年月日で生成する。
+// toISOString() は UTC 変換するため JST(+9) では日付が1日前にずれてしまう
+// （例: 2026-03-01 00:00 JST → "2026-02-28"）。販売期間・賞味期限の保存値が
+// 狂うのを防ぐため、必ずローカル年月日でフォーマットする。
+function dateStr(d: Date | null): string | null {
+  if (!d) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * RawSheetData[] を DB に保存し、グルーピング・サイジング・リーフ生成まで行う。
+ * xlsx と GSheet の両ハンドラから呼び出す共通パイプライン。
+ */
+export async function processRawSheets(
+  supabase: Supabase,
+  quotationId: string,
+  rawSheets: RawSheetData[],
+  settings: Settings,
+): Promise<void> {
+  const today = new Date();
+
+  for (const rawSheet of rawSheets) {
+    if (rawSheet.products.length === 0) continue;
+
+    // シートレコード作成
+    const { data: sheet, error: sheetErr } = await supabase
+      .from('sheets')
+      .insert({
+        quotation_id: quotationId,
+        sheet_name: rawSheet.sheet_name,
+        maker_name: rawSheet.maker_name,
+      })
+      .select()
+      .single();
+    if (sheetErr || !sheet) throw new Error(`Sheet insert failed: ${sheetErr?.message}`);
+
+    // 商品レコード一括作成
+    const productInserts = rawSheet.products.map((p) => ({
+      sheet_id: sheet.id,
+      no: p.no,
+      maker_name: p.maker_name,
+      product_name: p.product_name,
+      spec_raw: p.spec_raw,
+      spec_pieces: p.spec_pieces,
+      spec_grams: p.spec_grams,
+      irisu_raw: p.irisu_raw,
+      case_qty: p.case_qty,
+      lots_per_kou: p.lots_per_kou,
+      min_lot_raw: p.min_lot_raw,
+      min_lot_qty: p.min_lot_qty,
+      retail_price: p.retail_price,
+      cost: p.cost,
+      jan_code: p.jan_code,
+      shelf_life_days: p.shelf_life_days,
+      sales_period_raw: p.sales_period_raw,
+      sales_period_start: dateStr(p.sales_period_start),
+      sales_period_end: dateStr(p.sales_period_end),
+      piece_size: p.piece_size,
+      note: p.note,
+    }));
+
+    const { data: insertedProducts, error: prodErr } = await supabase
+      .from('products')
+      .insert(productInserts)
+      .select();
+    if (prodErr || !insertedProducts) throw new Error(`Products insert failed: ${prodErr?.message}`);
+
+    // パースエラーフラグ登録
+    for (let i = 0; i < rawSheet.products.length; i++) {
+      const raw = rawSheet.products[i];
+      const db = insertedProducts[i];
+      if (!db) continue;
+      for (const errCode of raw.parse_errors) {
+        await supabase.from('alert_flags').insert({
+          target_type: 'product',
+          target_id: db.id,
+          flag_code: errCode,
+          message: null,
+        });
+      }
+    }
+
+    // アソートグルーピング
+    const forGrouping: ProductForGrouping[] = insertedProducts.map((p) => ({
+      id: p.id,
+      maker_name: p.maker_name,
+      spec_pieces: p.spec_pieces,
+      spec_grams: p.spec_grams,
+      case_qty: p.case_qty,
+      lots_per_kou: p.lots_per_kou,
+      retail_price: p.retail_price,
+      cost: p.cost ?? 0,
+      min_lot_qty: p.min_lot_qty ?? 1,
+    }));
+
+    const groups = groupProducts(forGrouping, 0);
+
+    for (const group of groups) {
+      const dbProds = insertedProducts.filter((p) => group.product_ids.includes(p.id));
+
+      // assort_group 作成
+      const { data: assortGroup, error: agErr } = await supabase
+        .from('assort_groups')
+        .insert({ sheet_id: sheet.id, group_key: group.group_key, is_single: group.is_single })
+        .select()
+        .single();
+      if (agErr || !assortGroup) throw new Error(`AssortGroup insert failed: ${agErr?.message}`);
+
+      // assort_items（初期比率1:1:…:1）
+      await supabase.from('assort_items').insert(
+        group.product_ids.map((pid) => ({ group_id: assortGroup.id, product_id: pid, ratio: 1 })),
+      );
+
+      // サイジング計算
+      const types: AssortType[] = dbProds.map((p) => ({
+        cost: p.cost ?? 0,
+        minLotQty: p.min_lot_qty ?? 1,
+        ratio: 1,
+      }));
+
+      const sizing = group.is_single
+        ? planSingle({ cost: types[0].cost, minLotQty: types[0].minLotQty }, settings)
+        : planAssort(types, settings);
+
+      // 販売期間：最も制限の厳しい範囲を使用
+      const starts = dbProds
+        .map((p) => p.sales_period_start ? new Date(p.sales_period_start) : null)
+        .filter((d): d is Date => d !== null);
+      const ends = dbProds
+        .map((p) => p.sales_period_end ? new Date(p.sales_period_end) : null)
+        .filter((d): d is Date => d !== null);
+      const combStart = starts.length > 0
+        ? new Date(Math.max(...starts.map((d) => d.getTime())))
+        : null;
+      const combEnd = ends.length > 0
+        ? new Date(Math.min(...ends.map((d) => d.getTime())))
+        : null;
+
+      // 賞味期限: グループ内の最短。全商品がnullなら null（不明=制限なし）
+      const shelfValues = dbProds
+        .map((p) => p.shelf_life_days)
+        .filter((d): d is number => d !== null);
+      const shelfDays: number | null = shelfValues.length > 0
+        ? Math.min(...shelfValues)
+        : null;
+
+      const passResult = passes(sizing, shelfDays, combStart, combEnd, today, settings);
+      const alertCodes = calcAlertFlags(sizing, shelfDays, settings);
+
+      // リーフ作成（draft）
+      const leafName = dbProds
+        .map((p) => p.product_name)
+        .filter(Boolean)
+        .join('・');
+
+      await supabase.from('leaflets').insert({
+        group_id: assortGroup.id,
+        leaf_name: leafName,
+        item_count: (sizing as { itemCount?: number }).itemCount ?? 1,
+        leaf_qty: sizing.leafQty,
+        cost_total: sizing.costTotal,
+        wholesale_price: sizing.wholesale,
+        unit_price: sizing.unitPrice,
+        is_half_ok: sizing.isHalfOk,
+        shelf_life_days: shelfDays,
+        status: 'draft',
+      });
+
+      // 注意フラグ（グループ単位）
+      for (const reason of passResult.reasons) {
+        await supabase.from('alert_flags').insert({
+          target_type: 'group',
+          target_id: assortGroup.id,
+          flag_code: reason,
+          message: null,
+        });
+      }
+      for (const code of alertCodes) {
+        await supabase.from('alert_flags').insert({
+          target_type: 'group',
+          target_id: assortGroup.id,
+          flag_code: code,
+          message: null,
+        });
+      }
+    }
+  }
+}
+
+export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<void> {
+  if (!job.quotation_id) throw new Error('job has no quotation_id');
+
+  // 見積書レコード取得
+  const { data: quotation, error: qErr } = await supabase
+    .from('quotations')
+    .select('*')
+    .eq('id', job.quotation_id)
+    .single();
+  if (qErr || !quotation) throw new Error(`Quotation not found: ${qErr?.message}`);
+
+  // Storage からファイルダウンロード
+  const storagePath = `quotations/${quotation.id}/${quotation.source_ref}`;
+  const { data: blob, error: dlErr } = await supabase.storage
+    .from('quotation-files')
+    .download(storagePath);
+  if (dlErr || !blob) throw new Error(`Storage download failed: ${dlErr?.message}`);
+
+  const buffer = Buffer.from(await blob.arrayBuffer());
+  const settings = await loadSettings(supabase);
+
+  // セル値抽出 → 共通パイプライン
+  const rawSheets = extractXlsxCells(buffer);
+
+  // ヘッダー辞書に当たらない未対応書式だと全シート0件になる。
+  // 黙って「正常終了・データ無し」にすると取りこぼしに気付けないため、
+  // 明示的にエラーにして AI-OCR フォールバック対象として可視化する。
+  // （TODO: ここで Excel→画像化 → extractFromImagePdf による AI-OCR 経路に委譲する）
+  const totalProducts = rawSheets.reduce((n, s) => n + s.products.length, 0);
+  if (totalProducts === 0) {
+    throw new Error(
+      'UNSUPPORTED_XLSX_FORMAT: ヘッダー行を検出できませんでした（未対応書式の可能性）。AI-OCRフォールバックでの取込が必要です。',
+    );
+  }
+
+  await processRawSheets(supabase, quotation.id, rawSheets, settings);
+
+  // Excel 画像抽出（失敗してもジョブは続行）
+  try {
+    const imgResult = await extractXlsxImages(buffer);
+    if (imgResult.images.length > 0) {
+      // この案件の全シート・全商品を取得し、(シート名, No.)→商品ID のマップを作る。
+      // マルチシート（御見積書_01/02/03…）でも No. が衝突しないようシート単位で対応付ける。
+      const { data: sheetRows } = await supabase
+        .from('sheets')
+        .select('id, sheet_name')
+        .eq('quotation_id', job.quotation_id!);
+      const sids = (sheetRows ?? []).map((s) => s.id);
+      const sheetIdToName = new Map<string, string | null>();
+      for (const s of sheetRows ?? []) sheetIdToName.set(s.id, s.sheet_name);
+
+      const { data: prodRows } = await supabase
+        .from('products')
+        .select('id, no, sheet_id')
+        .in('sheet_id', sids);
+
+      // キー: "シート名|No." → 商品ID。シート名が取れない画像向けに "|No." も補助登録。
+      const keyToProductId = new Map<string, string>();
+      for (const p of prodRows ?? []) {
+        if (p.no === null) continue;
+        const name = sheetIdToName.get(p.sheet_id) ?? '';
+        const k = `${name}|${p.no}`;
+        if (!keyToProductId.has(k)) keyToProductId.set(k, p.id);
+        const fallback = `|${p.no}`;
+        if (!keyToProductId.has(fallback)) keyToProductId.set(fallback, p.id);
+      }
+
+      for (const img of imgResult.images) {
+        const productId =
+          keyToProductId.get(`${img.sheetName ?? ''}|${img.no}`) ??
+          keyToProductId.get(`|${img.no}`);
+        if (!productId) continue;
+
+        const ext = img.mimeType.split('/')[1] ?? 'png';
+        const imgPath = `products/${productId}/image.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from('product-images')
+          .upload(imgPath, img.buffer, { contentType: img.mimeType, upsert: true });
+        if (upErr) continue;
+
+        const { data: urlData } = supabase.storage
+          .from('product-images')
+          .getPublicUrl(imgPath);
+
+        await supabase
+          .from('products')
+          .update({ image_url: urlData.publicUrl })
+          .eq('id', productId);
+      }
+    }
+  } catch (imgErr) {
+    console.warn('[import-xlsx] Image extraction failed:', imgErr);
+  }
+}

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>商品リーフ</title>
+<style>
+  @font-face {
+    font-family: 'NotoSansJP';
+    src: url('{{FONT_URL}}') format('truetype');
+    font-weight: normal;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'NotoSansJP', 'Hiragino Sans', 'Meiryo', sans-serif;
+    font-size: 11px;
+    color: #1a1a1a;
+    background: #fff;
+    width: 210mm;
+    min-height: 297mm;
+    padding: 12mm 10mm;
+  }
+  .header {
+    background: #003087;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 4px 4px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header .title {
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 0.05em;
+  }
+  .header .draft-badge {
+    background: #e74c3c;
+    color: #fff;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 3px;
+    display: {{DRAFT_DISPLAY}};
+  }
+  .body {
+    border: 1px solid #003087;
+    border-top: none;
+    padding: 12px;
+  }
+  .product-code-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .label {
+    color: #666;
+    font-size: 10px;
+    min-width: 70px;
+  }
+  .value {
+    font-size: 12px;
+    font-weight: bold;
+  }
+  .value.code {
+    font-size: 14px;
+    color: #003087;
+  }
+  .direct-badge {
+    background: #f39c12;
+    color: #fff;
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 2px;
+    display: {{DIRECT_DISPLAY}};
+  }
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .image-section img {
+    width: 100%;
+    max-height: 180px;
+    object-fit: contain;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    background: #fafafa;
+  }
+  .image-placeholder {
+    width: 100%;
+    height: 180px;
+    border: 1px dashed #ccc;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #999;
+    font-size: 10px;
+    background: #fafafa;
+  }
+  .info-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .info-table tr td {
+    padding: 4px 6px;
+    border-bottom: 1px solid #eee;
+    vertical-align: middle;
+  }
+  .info-table tr td:first-child {
+    color: #555;
+    font-size: 10px;
+    width: 90px;
+    background: #f8f9fa;
+  }
+  .price-section {
+    background: #f0f4ff;
+    border: 1px solid #003087;
+    border-radius: 4px;
+    padding: 10px 14px;
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .price-item {
+    text-align: center;
+  }
+  .price-item .p-label {
+    font-size: 9px;
+    color: #666;
+    margin-bottom: 2px;
+  }
+  .price-item .p-value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #003087;
+  }
+  .price-item .p-unit {
+    font-size: 10px;
+    color: #666;
+  }
+  .price-divider {
+    width: 1px;
+    background: #ccc;
+    height: 40px;
+  }
+  .half-badge {
+    background: #27ae60;
+    color: #fff;
+    font-size: 10px;
+    padding: 3px 10px;
+    border-radius: 3px;
+    display: {{HALF_DISPLAY}};
+  }
+  .flags-section {
+    display: {{FLAGS_DISPLAY}};
+    background: #fff8e1;
+    border: 1px solid #ffc107;
+    border-radius: 4px;
+    padding: 6px 10px;
+    margin-bottom: 10px;
+    font-size: 10px;
+    color: #856404;
+  }
+  .sales-point {
+    background: #e8f5e9;
+    border-left: 3px solid #27ae60;
+    padding: 6px 10px;
+    font-size: 10px;
+    color: #1b5e20;
+    display: {{NOTE_DISPLAY}};
+  }
+  .footer {
+    margin-top: 10px;
+    font-size: 9px;
+    color: #999;
+    text-align: right;
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <span class="title">{{LEAF_NAME}}</span>
+  <span class="draft-badge">仮リーフ</span>
+</div>
+
+<div class="body">
+  <!-- 商品コード行 -->
+  <div class="product-code-row">
+    <span class="label">商品コード</span>
+    <span class="value code">{{PRODUCT_CODE}}</span>
+    <span class="direct-badge">直送</span>
+  </div>
+
+  <!-- 画像 + 基本情報 -->
+  <div class="main-grid">
+    <div class="image-section">
+      {{IMAGE_HTML}}
+    </div>
+    <table class="info-table">
+      <tr><td>アイテム数</td><td>{{ITEM_COUNT}} 種類</td></tr>
+      <tr><td>入数</td><td>{{LEAF_QTY}} 個</td></tr>
+      <tr><td>商品サイズ</td><td>{{PIECE_SIZE}}</td></tr>
+      <tr><td>賞味期限</td><td>{{SHELF_LIFE_DAYS}} 日（夏期）</td></tr>
+      <tr><td>受注後納期</td><td>{{LEAD_TIME}}</td></tr>
+      <tr><td>JANコード</td><td>{{JAN_CODE}}</td></tr>
+      <tr><td>PJ番号</td><td>{{PJ_NO}}</td></tr>
+    </table>
+  </div>
+
+  <!-- 価格情報 -->
+  <div class="price-section">
+    <div class="price-item">
+      <div class="p-label">仕入原価合計</div>
+      <div class="p-value">{{COST_TOTAL}}</div>
+      <div class="p-unit">円（税抜）</div>
+    </div>
+    <div class="price-divider"></div>
+    <div class="price-item">
+      <div class="p-label">卸価格</div>
+      <div class="p-value">{{WHOLESALE_PRICE}}</div>
+      <div class="p-unit">円（税抜）</div>
+    </div>
+    <div class="price-divider"></div>
+    <div class="price-item">
+      <div class="p-label">1個あたり単価</div>
+      <div class="p-value">{{UNIT_PRICE}}</div>
+      <div class="p-unit">円（税抜）</div>
+    </div>
+    <span class="half-badge">ハーフ可</span>
+  </div>
+
+  <!-- 注意フラグ -->
+  <div class="flags-section">
+    ⚠ {{FLAGS_TEXT}}
+  </div>
+
+  <!-- セールスポイント -->
+  <div class="sales-point">
+    {{NOTE}}
+  </div>
+</div>
+
+<div class="footer">
+  生成日: {{GENERATED_AT}} ／ ステータス: {{STATUS}}
+</div>
+</body>
+</html>

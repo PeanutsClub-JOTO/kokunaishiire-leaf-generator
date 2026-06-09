@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>商品リーフ画像</title>
+<style>
+  @font-face {
+    font-family: 'LeafJP';
+    src: url('{{FONT_URL}}') format('truetype');
+    font-weight: 400 900;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  html,
+  body {
+    width: 1540px;
+    height: 970px;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  body {
+    font-family: 'LeafJP', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+    color: #111;
+    background: #fff4c4;
+  }
+  .leaf {
+    position: relative;
+    width: 1540px;
+    height: 970px;
+    overflow: hidden;
+    --stripe-a: #ffe68b;
+    --stripe-b: #fff9df;
+    --accent: #f0bf5a;
+    --accent-strong: #e01818;
+    --accent-dark: #7a3a10;
+    --shadow: #b96900;
+    --soft-a: #ffd36a;
+    --soft-b: #ffe8a0;
+    --card-bg: #fffdf8;
+    --info-bg: #fffdf8;
+    --half-bg: #001ee6;
+    border: 7px solid var(--accent);
+    background:
+      repeating-linear-gradient(90deg, var(--stripe-a) 0 34px, var(--stripe-b) 34px 64px);
+  }
+  .leaf.theme-fruit {
+    --stripe-a: #ffe08c;
+    --stripe-b: #fff6dd;
+    --accent: #ff9f3f;
+    --accent-strong: #e84a2a;
+    --accent-dark: #8a3d00;
+    --shadow: #d25f00;
+    --soft-a: #ffbe64;
+    --soft-b: #fff0a8;
+    --half-bg: #0087cf;
+  }
+  .leaf.theme-wagashi {
+    --stripe-a: #f7e7df;
+    --stripe-b: #fff8ef;
+    --accent: #c78f74;
+    --accent-strong: #b4384a;
+    --accent-dark: #6f2f2a;
+    --shadow: #8b5b45;
+    --soft-a: #f2c9c3;
+    --soft-b: #fff0e3;
+    --card-bg: #fffaf3;
+    --half-bg: #6d3f99;
+  }
+  .leaf.theme-snack {
+    --stripe-a: #ffda52;
+    --stripe-b: #fff3bd;
+    --accent: #f05a28;
+    --accent-strong: #d71920;
+    --accent-dark: #803100;
+    --shadow: #b53300;
+    --soft-a: #ffb62e;
+    --soft-b: #fff1a1;
+    --half-bg: #003ee6;
+  }
+  .leaf.theme-sweets {
+    --stripe-a: #f6d6aa;
+    --stripe-b: #fff1df;
+    --accent: #b77945;
+    --accent-strong: #d33131;
+    --accent-dark: #67350f;
+    --shadow: #7f4b24;
+    --soft-a: #dfaa72;
+    --soft-b: #ffe1c1;
+    --half-bg: #bd2c72;
+  }
+  .leaf.theme-cool {
+    --stripe-a: #c8efff;
+    --stripe-b: #effbff;
+    --accent: #49aee8;
+    --accent-strong: #e01846;
+    --accent-dark: #174f7a;
+    --shadow: #1d76a8;
+    --soft-a: #95dcff;
+    --soft-b: #dbf7ff;
+    --half-bg: #005bd8;
+  }
+  .leaf::before,
+  .leaf::after {
+    content: "";
+    position: absolute;
+    border-radius: 999px;
+    filter: blur(42px);
+    opacity: .7;
+    pointer-events: none;
+  }
+  .leaf::before {
+    right: -110px;
+    top: 70px;
+    width: 560px;
+    height: 560px;
+    background: var(--soft-a);
+  }
+  .leaf::after {
+    right: 110px;
+    bottom: 120px;
+    width: 500px;
+    height: 350px;
+    background: var(--soft-b);
+  }
+  .theme-wagashi .leaf-pattern,
+  .theme-cool .leaf-pattern {
+    position: absolute;
+    inset: 0;
+    opacity: .28;
+    pointer-events: none;
+  }
+  .theme-wagashi .leaf-pattern {
+    background:
+      radial-gradient(circle at 80px 80px, transparent 0 48px, #d7a18c 49px 51px, transparent 52px),
+      radial-gradient(circle at 170px 155px, transparent 0 36px, #e6b5a0 37px 39px, transparent 40px);
+    background-size: 230px 190px;
+  }
+  .theme-cool .leaf-pattern {
+    background:
+      radial-gradient(circle at 70px 70px, rgba(255,255,255,.85) 0 12px, transparent 13px),
+      radial-gradient(circle at 150px 120px, rgba(255,255,255,.7) 0 8px, transparent 9px);
+    background-size: 210px 170px;
+  }
+  .main {
+    position: absolute;
+    inset: 0 0 132px 0;
+    padding: 30px 54px 34px;
+  }
+  .copy {
+    position: relative;
+    z-index: 2;
+    width: 980px;
+    max-height: 130px;
+    color: var(--accent-dark);
+    font-size: 50px;
+    line-height: 1.24;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-shadow: 3px 3px 0 #fff7e3;
+    overflow: hidden;
+  }
+  .visual-grid {
+    position: absolute;
+    left: 62px;
+    right: 62px;
+    bottom: 48px;
+    top: 190px;
+    display: grid;
+    grid-template-columns: 638px 1fr;
+    gap: 54px;
+  }
+  .hero-card,
+  .copy-card {
+    position: relative;
+    min-width: 0;
+    border: 5px solid var(--accent);
+    border-radius: 32px;
+    background: var(--card-bg);
+    box-shadow: 12px 16px 0 var(--shadow);
+    overflow: hidden;
+  }
+  .hero-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 34px;
+  }
+  .hero-card.assort {
+    padding: 26px;
+  }
+  .hero-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(16px 18px 0 rgba(0,0,0,.18));
+  }
+  .assort-grid {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .assort-grid img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #fff;
+    border: 3px solid #f5d18a;
+    border-radius: 22px;
+    padding: 8px;
+  }
+  .image-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px dashed #e2b85f;
+    border-radius: 24px;
+    color: #8a5a16;
+    font-size: 34px;
+    font-weight: 800;
+    background: var(--stripe-b);
+  }
+  .copy-card {
+    padding: 66px 60px 44px;
+  }
+  .sales-copy {
+    width: 430px;
+    max-height: 235px;
+    color: var(--accent-dark);
+    font-size: 39px;
+    line-height: 1.34;
+    font-weight: 900;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+  .sub-image-frame {
+    position: absolute;
+    right: 50px;
+    bottom: 50px;
+    width: 255px;
+    height: 245px;
+    border: 4px solid var(--accent);
+    border-radius: 24px;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+  }
+  .sub-image-frame img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+  .draft-badge {
+    position: absolute;
+    left: 66px;
+    bottom: 64px;
+    min-width: 272px;
+    border: 4px solid var(--accent-strong);
+    border-radius: 20px;
+    background: #ffdd45;
+    color: var(--accent-dark);
+    padding: 15px 30px;
+  }
+  .draft-badge strong {
+    display: block;
+    font-size: 25px;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+  .draft-badge span {
+    display: block;
+    font-size: 17px;
+    font-weight: 700;
+  }
+  .info-strip {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 132px;
+    background: #fffdf8;
+    border-top: 4px solid var(--accent);
+    padding: 10px 22px 12px;
+  }
+  .product-code {
+    color: #9ca3af;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    height: 14px;
+    letter-spacing: 0;
+  }
+  .product-name {
+    position: absolute;
+    left: 22px;
+    top: 42px;
+    width: 520px;
+    height: 42px;
+    color: #111;
+    font-size: 38px;
+    line-height: 1.08;
+    font-weight: 900;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .metrics {
+    position: absolute;
+    left: 42px;
+    bottom: 10px;
+    height: 48px;
+    display: grid;
+    grid-template-columns: 150px 145px 330px 160px;
+    align-items: end;
+    column-gap: 34px;
+  }
+  .metric {
+    white-space: nowrap;
+  }
+  .metric .num {
+    color: var(--accent-strong);
+    font-size: 38px;
+    font-weight: 900;
+    line-height: .95;
+  }
+  .metric .label {
+    color: #111;
+    font-size: 19px;
+    font-weight: 700;
+    margin-left: 8px;
+  }
+  .metric.price .label:first-child,
+  .metric.unit .label:first-child {
+    margin-left: 0;
+    margin-right: 12px;
+  }
+  .details {
+    position: absolute;
+    left: 840px;
+    top: 23px;
+    width: 310px;
+    color: #111;
+    font-size: 17px;
+    line-height: 1.58;
+    font-weight: 700;
+  }
+  .details div {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .details div::before {
+    content: "";
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: #111;
+    vertical-align: -1px;
+  }
+  .lead-time {
+    position: absolute;
+    right: 174px;
+    top: 30px;
+    width: 205px;
+    border-top: 4px solid var(--accent-strong);
+    border-bottom: 4px solid var(--accent-strong);
+    color: var(--accent-strong);
+    text-align: center;
+    font-size: 25px;
+    line-height: 46px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+  .half {
+    position: absolute;
+    right: 24px;
+    top: 26px;
+    width: 140px;
+    height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: var(--half-bg);
+    font-size: 17px;
+    font-weight: 800;
+  }
+  .pj {
+    position: absolute;
+    right: 26px;
+    bottom: 13px;
+    width: 170px;
+    text-align: left;
+    color: #111;
+    font-size: 16px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .hidden {
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="leaf {{THEME_CLASS}}">
+  <div class="leaf-pattern"></div>
+  <main class="main">
+    <div class="copy js-fit" data-min-font="34">{{MAIN_COPY}}</div>
+    <section class="visual-grid">
+      <div class="hero-card {{ASSORT_CLASS}}">
+        {{HERO_IMAGE_HTML}}
+      </div>
+      <div class="copy-card">
+        <div class="sales-copy js-fit" data-min-font="27">{{SALES_COPY}}</div>
+        <div class="sub-image-frame">
+          {{SUB_IMAGE_HTML}}
+        </div>
+        <div class="draft-badge {{DRAFT_CLASS}}">
+          <strong>{{STATUS_LABEL}}</strong>
+          <span>{{STATUS_NOTE}}</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="info-strip">
+    <div class="product-code">{{PRODUCT_CODE}}</div>
+    <div class="product-name js-fit-width" data-min-font="26">{{LEAF_NAME}}</div>
+
+    <div class="metrics">
+      <div class="metric">
+        <span class="num">{{ITEM_COUNT}}</span><span class="label">アイテム</span>
+      </div>
+      <div class="metric">
+        <span class="num">{{LEAF_QTY}}</span><span class="label">個入</span>
+      </div>
+      <div class="metric price">
+        <span class="label">卸価格</span><span class="num">{{WHOLESALE_PRICE}}</span><span class="label">円(税別)</span>
+      </div>
+      <div class="metric unit">
+        <span class="label">単価</span><span class="num">{{UNIT_PRICE}}</span><span class="label">円</span>
+      </div>
+    </div>
+
+    <div class="details">
+      <div>商品サイズ / {{PIECE_SIZE}}</div>
+      <div>賞味期限 / {{SHELF_LIFE_DAYS}}日</div>
+    </div>
+    <div class="lead-time js-fit-width" data-min-font="18">{{LEAD_TIME}}</div>
+    <div class="half">ハーフ　{{HALF_LABEL}}</div>
+    <div class="pj">PJ番号　{{PJ_NO}}</div>
+  </footer>
+</div>
+<script>
+  function fitBox(el, minFont) {
+    var size = parseFloat(window.getComputedStyle(el).fontSize);
+    while ((el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) && size > minFont) {
+      size -= 1;
+      el.style.fontSize = size + 'px';
+    }
+  }
+  document.querySelectorAll('.js-fit').forEach(function (el) {
+    fitBox(el, Number(el.dataset.minFont || 24));
+  });
+  document.querySelectorAll('.js-fit-width').forEach(function (el) {
+    var size = parseFloat(window.getComputedStyle(el).fontSize);
+    var minFont = Number(el.dataset.minFont || 18);
+    while (el.scrollWidth > el.clientWidth && size > minFont) {
+      size -= 1;
+      el.style.fontSize = size + 'px';
+    }
+  });
+</script>
+</body>
+</html>
