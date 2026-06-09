@@ -95,19 +95,57 @@ export function selectLeafTheme(data: LeafletImageData): LeafTheme {
   return { className: 'theme-standard', label: 'おすすめ' };
 }
 
+// 商品カテゴリ辞書（商品名 → 表示カテゴリ）
+const COPY_CATEGORIES: Array<[RegExp, string]> = [
+  [/ポップコーン/, 'ポップコーン'],
+  [/水羊羹|水ようかん/, '水羊羹'],
+  [/羊羹|ようかん/, '羊羹'],
+  [/カステラ/, 'カステラ'],
+  [/バウム/, 'バウムクーヘン'],
+  [/ケーキ/, 'ケーキ'],
+  [/クッキー/, 'クッキー'],
+  [/ムース/, 'ムース'],
+  [/プリン/, 'プリン'],
+  [/ゼリー/, 'ゼリー'],
+  [/最中|もなか/, '最中'],
+  [/まんじゅう|饅頭/, 'まんじゅう'],
+  [/せんべい|煎餅/, 'せんべい'],
+  [/チョコ|ショコラ/, 'チョコ'],
+  [/グミ/, 'グミ'],
+];
+
+function detectCategory(name: string): string {
+  for (const [re, label] of COPY_CATEGORIES) if (re.test(name)) return label;
+  return '商品';
+}
+
+/** 商品名から品番・接尾辞・カテゴリ語を除いた「味・産地」フレーズを取り出す */
+function flavorOf(name: string): string {
+  let s = cleanText(name);
+  // 先頭の品番（YL-6P / ICR-7P / JKR-10 など）を除去
+  s = s.replace(/^[0-9A-Za-zＡ-Ｚ＿\-－]+[PpＰ]?(?=[ぁ-んァ-ヶ一-龠])/, '');
+  // 末尾の汎用語を除去
+  s = s.replace(/(ギフト|ｷﾞﾌﾄ|詰合せ|詰め合わせ|セット)$/g, '');
+  // 末尾のカテゴリ語を除去（「塩レモンゼリー」→「塩レモン」）
+  for (const [re] of COPY_CATEGORIES) {
+    s = s.replace(new RegExp(`(?:${re.source})$`), '');
+  }
+  return s.trim();
+}
+
 function buildMainCopy(data: LeafletImageData): string {
   const name = cleanText(data.leafName);
   if (data.itemCount >= 2) {
-    return `${name}の${data.itemCount}種類アソートです！`;
+    // アソート: 構成商品の共通カテゴリ（無ければ「味」）で訴求
+    const parts = name.split('・').map((n) => detectCategory(n));
+    const uniq = Array.from(new Set(parts));
+    const cat = uniq.length === 1 && uniq[0] !== '商品' ? uniq[0] : '味';
+    return `${data.itemCount}種類の${cat}が一度に楽しめる、\nアソート企画です！`;
   }
-  const theme = selectLeafTheme(data).className;
-  if (theme === 'theme-wagashi') return '上品な甘さが楽しめる、\n和菓子系の景品商品です！';
-  if (theme === 'theme-snack') return 'パッと目を引く、\n景品向けスナック商品です！';
-  if (theme === 'theme-sweets') return '甘さと見た目で選びやすい、\nおすすめスイーツです！';
-  if (theme === 'theme-cool') return 'さっぱり楽しめる、\n季節感のある商品です！';
-  if (theme === 'theme-fruit') return 'フルーツ感が楽しめる、\n景品向けの商品です！';
-  if (name.includes('マンゴー')) return 'マンゴーの甘みが楽しめる、\nひとくちサイズの商品です！';
-  if (name.includes('ゼリー')) return '食べやすいサイズで楽しめる、\nフルーツゼリーです！';
+  const cat = detectCategory(name);
+  const fl = flavorOf(name);
+  if (fl && cat !== '商品') return `${fl}の${cat}が楽しめる、\n景品向けの商品です！`;
+  if (fl) return `${fl}！`;
   return `${name}です！`;
 }
 
@@ -116,31 +154,24 @@ function buildSalesCopy(data: LeafletImageData): string {
   if (note) return note;
   const name = cleanText(data.leafName);
   if (data.itemCount >= 2) {
-    return `${data.itemCount}種類の味が楽しめるアソート企画です。`;
+    // アソート: 構成商品の味を列挙
+    const flavors = name
+      .split('・')
+      .map((n) => flavorOf(n) || cleanText(n))
+      .filter(Boolean);
+    const listed = flavors.slice(0, 4).join('・');
+    return `${listed}${flavors.length > 4 ? ' ほか' : ''}の\n${data.itemCount}種アソートです。\n景品として案内しやすい企画です。`;
   }
+  const cat = detectCategory(name);
+  const fl = flavorOf(name);
+  const lead = fl ? `${fl}の${cat}。\n` : '';
   const theme = selectLeafTheme(data).className;
-  if (theme === 'theme-wagashi') {
-    return '落ち着いた雰囲気で\n幅広い層に案内しやすい\n和菓子景品です。';
-  }
-  if (theme === 'theme-snack') {
-    return 'ゲームセンター景品で\n見映えしやすい、\n手に取りやすい商品です。';
-  }
-  if (theme === 'theme-sweets') {
-    return '甘いもの好きに\n案内しやすい、\n見た目も楽しい商品です。';
-  }
-  if (theme === 'theme-cool') {
-    return '爽やかな印象で、\n季節提案にも使いやすい\n商品です。';
-  }
-  if (theme === 'theme-fruit') {
-    return 'フルーツ系のわかりやすさで\n景品として案内しやすい\n商品です。';
-  }
-  if (name.includes('マンゴー')) {
-    return 'マンゴー味の\nひとくち商品！\n常温で扱いやすく、\n景品にもおすすめです。';
-  }
-  if (name.includes('ゼリー')) {
-    return '常温で扱いやすい、\n景品向けにおすすめの\nゼリー商品です。';
-  }
-  return '景品向けに案内しやすい、\nおすすめの商品です。';
+  if (theme === 'theme-wagashi') return `${lead}落ち着いた雰囲気で\n幅広い層に案内しやすい\n和菓子景品です。`;
+  if (theme === 'theme-snack') return `${lead}見映えしやすく\n手に取りやすい\n景品向け商品です。`;
+  if (theme === 'theme-sweets') return `${lead}甘いもの好きに\n案内しやすい商品です。`;
+  if (theme === 'theme-cool') return `${lead}爽やかな印象で\n季節提案にも使いやすい\n商品です。`;
+  if (theme === 'theme-fruit') return `${lead}フルーツ感が分かりやすく\n景品として案内しやすい\n商品です。`;
+  return `${lead}景品向けに案内しやすい\nおすすめの商品です。`;
 }
 
 function imageTag(src: string | undefined, className: string): string {

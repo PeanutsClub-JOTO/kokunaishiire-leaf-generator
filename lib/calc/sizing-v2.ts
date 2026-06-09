@@ -28,13 +28,20 @@ export const DEFAULT_V2_SETTINGS: SizingV2Settings = {
 
 export type SizingV2Result = {
   ok: boolean;
-  reason?: string;       // unit_over（単価>1000）/ cost_over（最小ロットで上限超）/ no_cost
-  unitPrice: number;     // 単価 = プライズ1個の原価（単品=原価 / アソート=原価合計）
-  minLotPrice: number;   // 1ロット（最小発注）の原価
-  maxLots: number;       // ロット数
-  leafQty: number;       // 掲載入数 = プライズ（セット）数
-  costTotal: number;     // 仕入原価合計（= 卸価格。100円切り上げ後）
-  isHalfOk: boolean;     // ハーフ可否（1ロット価格 ≤ halfBase。仕様書§3）
+  reason?: string;         // unit_over / cost_over / no_cost
+
+  // ── 判定用（内部ロジック） ────────────────────────
+  setCost: number;         // 1セットの原価合計（アソート判定：≤1000 で成立）
+  sets: number;            // セット（プライズ）数
+
+  // ── 掲載用（リーフに表示する値） ─────────────────
+  unitPrice: number;       // 掲載単価 = 1商品あたりの原価（setCost ÷ 種類数）
+  leafQty: number;         // 掲載入数 = 総箱数（sets × 種類数）
+  costTotal: number;       // 仕入原価合計 = 卸価格（unitPrice × leafQty の100円切り上げ）
+
+  minLotPrice: number;     // 最小ロット原価（参考）
+  maxLots: number;         // ロット数（参考）
+  isHalfOk: boolean;       // ハーフ可否
 };
 
 function gcd(a: number, b: number): number {
@@ -54,8 +61,10 @@ export type AssortTypeV2 = {
   ratio: number;
 };
 
-const fail = (reason: string, unitPrice = 0, itemCount = 1): SizingV2Result & { itemCount: number } => ({
-  ok: false, reason, unitPrice, minLotPrice: 0, maxLots: 0,
+const fail = (reason: string, setCost = 0, itemCount = 1): SizingV2Result & { itemCount: number } => ({
+  ok: false, reason, setCost, sets: 0,
+  unitPrice: itemCount > 0 ? setCost / itemCount : 0,
+  minLotPrice: 0, maxLots: 0,
   leafQty: 0, costTotal: 0, isHalfOk: false, itemCount,
 });
 
@@ -90,16 +99,24 @@ function sizeSets(
   const sets = Math.floor(maxSets / step) * step; // ケース単位に丸めたセット数
   if (sets < step) return fail('cost_over', setCost, itemCount);
 
-  const costTotal = ceil100(sets * setCost);
+  // 掲載用に変換
+  // unitPrice = 1商品あたりの原価（setCost ÷ 種類数）
+  // leafQty   = 総箱数（sets × 種類数）
+  // → unitPrice × leafQty = setCost × sets ✓（整合）
+  const unitPrice = setCost / itemCount;
+  const leafQty = sets * itemCount;
+  const costTotal = ceil100(unitPrice * leafQty);
   const isHalfOk = lotPrice <= s.halfBase;
 
   return {
     ok: true,
-    unitPrice: setCost,
+    setCost,
+    sets,
+    unitPrice,
+    leafQty,
+    costTotal,
     minLotPrice: lotPrice,
     maxLots: sets / step,
-    leafQty: sets, // 入数 = プライズ（セット）数。単価 × 入数 = 卸価格
-    costTotal,
     isHalfOk,
     itemCount,
   };

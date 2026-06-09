@@ -176,17 +176,21 @@
   .copy-card {
     position: relative;
     min-width: 0;
-    border: 5px solid var(--accent);
     border-radius: 32px;
-    background: var(--card-bg);
-    box-shadow: 12px 16px 0 var(--shadow);
     overflow: hidden;
   }
+  /* 商品画像側は枠なし（背景・影なし） */
   .hero-card {
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 34px;
+    padding: 12px;
+  }
+  /* テキスト側カードのみ枠を残す */
+  .copy-card {
+    border: 5px solid var(--accent);
+    background: var(--card-bg);
+    box-shadow: 12px 16px 0 var(--shadow);
   }
   .hero-card.assort {
     padding: 26px;
@@ -209,10 +213,6 @@
     width: 100%;
     height: 100%;
     object-fit: contain;
-    background: #fff;
-    border: 3px solid #f5d18a;
-    border-radius: 22px;
-    padding: 8px;
   }
   .image-placeholder {
     width: 100%;
@@ -246,9 +246,7 @@
     bottom: 50px;
     width: 255px;
     height: 245px;
-    border: 4px solid var(--accent);
     border-radius: 24px;
-    background: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -258,28 +256,6 @@
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
-  }
-  .draft-badge {
-    position: absolute;
-    left: 66px;
-    bottom: 64px;
-    min-width: 272px;
-    border: 4px solid var(--accent-strong);
-    border-radius: 20px;
-    background: #ffdd45;
-    color: var(--accent-dark);
-    padding: 15px 30px;
-  }
-  .draft-badge strong {
-    display: block;
-    font-size: 25px;
-    line-height: 1.1;
-    margin-bottom: 8px;
-  }
-  .draft-badge span {
-    display: block;
-    font-size: 17px;
-    font-weight: 700;
   }
   .info-strip {
     position: absolute;
@@ -425,10 +401,6 @@
         <div class="sales-copy js-fit" data-min-font="27">{{SALES_COPY}}</div>
         <div class="sub-image-frame">
           {{SUB_IMAGE_HTML}}
-        </div>
-        <div class="draft-badge {{DRAFT_CLASS}}">
-          <strong>{{STATUS_LABEL}}</strong>
-          <span>{{STATUS_NOTE}}</span>
         </div>
       </div>
     </section>
