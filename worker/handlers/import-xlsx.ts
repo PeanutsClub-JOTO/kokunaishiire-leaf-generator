@@ -11,15 +11,13 @@ import type { Database } from '../../lib/supabase/types';
 import { extractXlsxCells, type RawSheetData } from '../../lib/import/xlsx-cells';
 import { extractXlsxImages } from '../../lib/import/xlsx-images';
 import { groupProducts, type ProductForGrouping } from '../../lib/assort/grouping';
+import { type Settings, DEFAULT_SETTINGS } from '../../lib/calc/engine';
 import {
-  planSingle,
-  planAssort,
-  passes,
-  calcAlertFlags,
-  type Settings,
-  type AssortType,
-  DEFAULT_SETTINGS,
-} from '../../lib/calc/engine';
+  sizeSingleV2,
+  sizeAssortV2,
+  type SizingV2Result,
+  type SizingV2Settings,
+} from '../../lib/calc/sizing-v2';
 
 type Supabase = SupabaseClient<Database>;
 type Job = Database['public']['Tables']['jobs']['Row'];
@@ -38,6 +36,42 @@ export async function loadSettings(supabase: Supabase): Promise<Settings> {
     }
   }
   return s;
+}
+
+/**
+ * 通過判定＋注意フラグ（新サイジング v2 用）。
+ * 除外条件: 単価(原価)>1000(unit_price>cap) / 最小ロット>33000(cost_over) /
+ *           賞味期限<90 / 販売期間外。
+ */
+function evaluateGate(
+  sizing: SizingV2Result,
+  shelfDays: number | null,
+  salesStart: Date | null,
+  salesEnd: Date | null,
+  today: Date,
+  s: Settings,
+): { reasons: string[]; alertCodes: string[] } {
+  const reasons: string[] = [];
+  if (!sizing.ok) {
+    reasons.push(sizing.reason === 'unit_over' ? 'unit_price>cap' : 'cost_over');
+  }
+  if (shelfDays !== null && shelfDays < s.shelfMinDays) reasons.push('shelf<min');
+  const inRange =
+    salesStart === null || salesEnd === null
+      ? true
+      : salesStart <= today && today <= salesEnd;
+  if (!inRange) reasons.push('sales_out_of_range');
+
+  const alertCodes: string[] = [];
+  // 単価(原価)が上限の90%超〜上限以内
+  if (sizing.ok && sizing.unitPrice > s.unitPriceCap * 0.9 && sizing.unitPrice <= s.unitPriceCap) {
+    alertCodes.push('unit_near_cap');
+  }
+  // 賞味期限が通過基準を満たすが1.5倍未満
+  if (shelfDays !== null && shelfDays >= s.shelfMinDays && shelfDays < s.shelfMinDays * 1.5) {
+    alertCodes.push('shelf_near');
+  }
+  return { reasons, alertCodes };
 }
 
 // YYYY-MM-DD をローカル時刻の年月日で生成する。
@@ -138,7 +172,22 @@ export async function processRawSheets(
       min_lot_qty: p.min_lot_qty ?? 1,
     }));
 
-    const groups = groupProducts(forGrouping, 0);
+    const rawGroups = groupProducts(forGrouping, 0);
+
+    // アソート候補でも「原価合計（比率1:1）が単価上限(1000)を超える」場合は
+    // 1つのプライズに収まらないためアソート不可 → 単品に分割する。
+    const costById = new Map(insertedProducts.map((p) => [p.id, p.cost ?? 0]));
+    const groups = rawGroups.flatMap((g) => {
+      if (g.is_single || g.product_ids.length <= 1) return [g];
+      const sumCost = g.product_ids.reduce((a, pid) => a + (costById.get(pid) ?? 0), 0);
+      if (sumCost <= settings.unitPriceCap) return [g];
+      // 単価合計が1000円超 → アソート解消、各商品を単品グループに
+      return g.product_ids.map((pid) => ({
+        group_key: `single:${pid}`,
+        is_single: true,
+        product_ids: [pid],
+      }));
+    });
 
     for (const group of groups) {
       const dbProds = insertedProducts.filter((p) => group.product_ids.includes(p.id));
@@ -156,16 +205,19 @@ export async function processRawSheets(
         group.product_ids.map((pid) => ({ group_id: assortGroup.id, product_id: pid, ratio: 1 })),
       );
 
-      // サイジング計算
-      const types: AssortType[] = dbProds.map((p) => ({
-        cost: p.cost ?? 0,
-        minLotQty: p.min_lot_qty ?? 1,
-        ratio: 1,
-      }));
-
+      // サイジング計算（新方式: 単価=原価, 卸価格=原価合計, 1ロット=最小ロット数量）
+      const v2Settings: SizingV2Settings = {
+        unitPriceCap: settings.unitPriceCap,
+        costCap: settings.costCap,
+        halfBase: settings.halfBase,
+      };
       const sizing = group.is_single
-        ? planSingle({ cost: types[0].cost, minLotQty: types[0].minLotQty }, settings)
-        : planAssort(types, settings);
+        ? sizeSingleV2(dbProds[0].cost ?? 0, dbProds[0].min_lot_qty ?? 1, v2Settings)
+        : sizeAssortV2(
+            dbProds.map((p) => ({ cost: p.cost ?? 0, minLotQty: p.min_lot_qty ?? 1, ratio: 1 })),
+            v2Settings,
+          );
+      const itemCount = group.is_single ? 1 : dbProds.length;
 
       // 販売期間：最も制限の厳しい範囲を使用
       const starts = dbProds
@@ -189,8 +241,7 @@ export async function processRawSheets(
         ? Math.min(...shelfValues)
         : null;
 
-      const passResult = passes(sizing, shelfDays, combStart, combEnd, today, settings);
-      const alertCodes = calcAlertFlags(sizing, shelfDays, settings);
+      const gate = evaluateGate(sizing, shelfDays, combStart, combEnd, today, settings);
 
       // リーフ作成（draft）
       const leafName = dbProds
@@ -201,18 +252,18 @@ export async function processRawSheets(
       await supabase.from('leaflets').insert({
         group_id: assortGroup.id,
         leaf_name: leafName,
-        item_count: (sizing as { itemCount?: number }).itemCount ?? 1,
+        item_count: itemCount,
         leaf_qty: sizing.leafQty,
         cost_total: sizing.costTotal,
-        wholesale_price: sizing.wholesale,
-        unit_price: sizing.unitPrice,
+        wholesale_price: sizing.costTotal,  // 卸価格 = 仕入原価合計
+        unit_price: sizing.unitPrice,       // 単価 = 原価（加重平均原価）
         is_half_ok: sizing.isHalfOk,
         shelf_life_days: shelfDays,
         status: 'draft',
       });
 
       // 注意フラグ（グループ単位）
-      for (const reason of passResult.reasons) {
+      for (const reason of gate.reasons) {
         await supabase.from('alert_flags').insert({
           target_type: 'group',
           target_id: assortGroup.id,
@@ -220,7 +271,7 @@ export async function processRawSheets(
           message: null,
         });
       }
-      for (const code of alertCodes) {
+      for (const code of gate.alertCodes) {
         await supabase.from('alert_flags').insert({
           target_type: 'group',
           target_id: assortGroup.id,

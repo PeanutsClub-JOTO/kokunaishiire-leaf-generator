@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/client';
-import { planAssort, type AssortType, type Settings } from '@/lib/calc/engine';
+import { sizeAssortV2, type AssortTypeV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
 
 export async function POST(
   req: NextRequest,
@@ -22,24 +22,18 @@ export async function POST(
     .from('app_settings')
     .select('key, value');
 
-  const s: Settings = {
-    profitCoef: 1.25,
-    salesAdd: 3000,
+  const s: SizingV2Settings = {
     unitPriceCap: 1000,
     costCap: 33000,
     halfBase: 16500,
-    shelfMinDays: 90,
   };
 
   if (settings) {
     for (const row of settings) {
       switch (row.key) {
-        case 'profit_coef':    s.profitCoef   = row.value; break;
-        case 'sales_add':      s.salesAdd     = row.value; break;
         case 'unit_price_cap': s.unitPriceCap = row.value; break;
         case 'cost_cap':       s.costCap      = row.value; break;
         case 'half_base':      s.halfBase     = row.value; break;
-        case 'shelf_min_days': s.shelfMinDays = row.value; break;
       }
     }
   }
@@ -57,7 +51,7 @@ export async function POST(
   // 比率を更新
   const ratioMap = new Map(ratios.map((r) => [r.product_id, r.ratio]));
 
-  const types: AssortType[] = items.map((item) => {
+  const types: AssortTypeV2[] = items.map((item) => {
     const product = item.products as { cost: number; min_lot_qty: number } | null;
     return {
       cost: product?.cost ?? 0,
@@ -66,7 +60,7 @@ export async function POST(
     };
   });
 
-  const result = planAssort(types, s);
+  const result = sizeAssortV2(types, s);
 
   // assort_items の ratio を更新
   for (const { product_id, ratio } of ratios) {
@@ -84,8 +78,8 @@ export async function POST(
       .update({
         leaf_qty: result.leafQty,
         cost_total: result.costTotal,
-        wholesale_price: result.wholesale,
-        unit_price: result.unitPrice,
+        wholesale_price: result.costTotal,  // 卸価格 = 仕入原価合計
+        unit_price: result.unitPrice,       // 単価 = 加重平均原価
         is_half_ok: result.isHalfOk,
         item_count: result.itemCount,
       })
@@ -93,5 +87,6 @@ export async function POST(
       .eq('status', 'draft');
   }
 
-  return NextResponse.json({ result });
+  // フロントエンド互換: wholesale = 仕入原価合計（卸価格）として返す
+  return NextResponse.json({ result: { ...result, wholesale: result.costTotal } });
 }
