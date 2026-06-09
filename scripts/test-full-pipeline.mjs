@@ -152,23 +152,46 @@ function combinations(arr, k) {
 // 単価合計(≤1000)と最小ロット原価(≤33,000)の両方を満たす最大の種類数 k を求め、
 // k種の組み合わせを企画化する（k=全種ならそのまま1案、未満なら C(n,k) を提案）。
 // 組み合わせが多すぎる場合（>MAX）は重複なしのチャンク分割にフォールバック。
-const MAX_COMBOS = 6;
+const MAX_COMBOS = 8; // 1グループ最大8案まで提示
+
 function planAssortCombos(products) {
   const sorted = [...products].sort((a, b) => (a.cost ?? 0) - (b.cost ?? 0));
+
+  // 単価合計 ≤ 1000 かつ 最小ロット原価 ≤ 33,000 を満たす最大の種類数 k を探す
   let bestK = 0;
   for (let k = products.length; k >= 2; k--) {
-    const subset = sorted.slice(0, k); // k個の最安サブセットで成立性チェック
+    const subset = sorted.slice(0, k);
     const sz = sizeSets(subset.map(p => ({ cost: p.cost ?? 0, minLotQty: p.min_lot_qty ?? 1, ratio: 1 })));
     if (sz.ok) { bestK = k; break; }
   }
-  if (bestK === 0) return [];                 // 2種すら無理 → 単品扱い
-  if (bestK >= products.length) return [products]; // 全種で1アソート
-  const combos = combinations(products, bestK);
-  if (combos.length <= MAX_COMBOS) return combos;   // 全組み合わせを提案
-  // 多すぎる場合は重複なしチャンク（各商品1回ずつ）にフォールバック
-  const chunks = [];
-  for (let i = 0; i < products.length; i += bestK) chunks.push(products.slice(i, i + bestK));
-  return chunks.filter(c => c.length >= 2);
+  if (bestK === 0) return [];
+  if (bestK >= products.length) return [products];
+
+  const allCombos = combinations(products, bestK);
+
+  // MAX_COMBOS 以下なら全部提示
+  if (allCombos.length <= MAX_COMBOS) return allCombos;
+
+  // 多い場合：「各商品がなるべく均等に登場する」多様性優先の選出
+  // → まず全商品をカバーするノンオーバーラップセットを先に入れ、
+  //   その後カバレッジが低い商品を優先して残りを埋める
+  const selected = [];
+  const coverage = new Map(products.map(p => [p.no ?? p.product_name, 0]));
+
+  // スコア = コンボ内の全商品の登場回数の合計（低いほど優先）
+  // → カバレッジが少ない商品を多く含む組み合わせを優先し、均等に全商品が出るようにする
+  const score = (combo) =>
+    combo.reduce((a, p) => a + (coverage.get(p.no ?? p.product_name) ?? 0), 0);
+
+  while (selected.length < MAX_COMBOS && allCombos.length > 0) {
+    const idx = allCombos.reduce((bestIdx, combo, i) =>
+      score(combo) < score(allCombos[bestIdx]) ? i : bestIdx, 0);
+    const chosen = allCombos.splice(idx, 1)[0];
+    selected.push(chosen);
+    chosen.forEach(p => coverage.set(p.no ?? p.product_name, (coverage.get(p.no ?? p.product_name) ?? 0) + 1));
+  }
+
+  return selected;
 }
 
 // ─── 画像抽出 ─────────────────────────────────────────────────────────────────
