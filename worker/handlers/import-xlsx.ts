@@ -172,22 +172,18 @@ export async function processRawSheets(
       min_lot_qty: p.min_lot_qty ?? 1,
     }));
 
+    // 取込時は全商品を「単品」として構成する（アソートはワークベンチで後付け）。
+    // ただし互換キー（メーカー|規格|入数|上代）は group_key として保持し、
+    // ワークベンチ側で「同じキー＝アソート可能な仲間」を見つけられるようにする。
     const rawGroups = groupProducts(forGrouping, 0);
-
-    // アソート候補でも「原価合計（比率1:1）が単価上限(1000)を超える」場合は
-    // 1つのプライズに収まらないためアソート不可 → 単品に分割する。
-    const costById = new Map(insertedProducts.map((p) => [p.id, p.cost ?? 0]));
-    const groups = rawGroups.flatMap((g) => {
-      if (g.is_single || g.product_ids.length <= 1) return [g];
-      const sumCost = g.product_ids.reduce((a, pid) => a + (costById.get(pid) ?? 0), 0);
-      if (sumCost <= settings.unitPriceCap) return [g];
-      // 単価合計が1000円超 → アソート解消、各商品を単品グループに
-      return g.product_ids.map((pid) => ({
-        group_key: `single:${pid}`,
+    const groups = rawGroups.flatMap((g) =>
+      g.product_ids.map((pid) => ({
+        // 互換性タグ: グルーピングできた塊は同一キーを共有、単独商品は一意キー
+        group_key: g.is_single ? `single:${pid}` : g.group_key,
         is_single: true,
         product_ids: [pid],
-      }));
-    });
+      })),
+    );
 
     for (const group of groups) {
       const dbProds = insertedProducts.filter((p) => group.product_ids.includes(p.id));

@@ -17,6 +17,7 @@ export type WorkbenchItem = {
 export type WorkbenchLeaflet = {
   id: string;
   groupId: string;
+  groupKey: string;
   isSingle: boolean;
   status: 'draft' | 'final';
   leafName: string;
@@ -155,34 +156,50 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
 
 // ─── コンポーネント ────────────────────────────────────────────────────────────
 export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }: Props) {
-  void quotationId;
   const [selectedId, setSelectedId] = useState(leaflets[0]?.id ?? '');
-  // 編集状態（リーフID単位）
-  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string; ratios: Record<string, number> }>>(() =>
-    Object.fromEntries(
-      leaflets.map((l) => [l.id, {
-        leafName: l.leafName,
-        leadTime: l.leadTime,
-        note: l.note ?? '',
-        ratios: Object.fromEntries(l.items.map((it) => [it.productId, it.ratio])),
-      }]),
-    ),
+  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string }>>(() =>
+    Object.fromEntries(leaflets.map((l) => [l.id, { leafName: l.leafName, leadTime: l.leadTime, note: l.note ?? '' }])),
+  );
+  // アソート選択: ベースリーフID → { productId: ratio }（ベース商品を必ず含む）
+  const [assortSel, setAssortSel] = useState<Record<string, Record<string, number>>>(() =>
+    Object.fromEntries(leaflets.map((l) => [l.id, Object.fromEntries(l.items.map((it) => [it.productId, it.ratio]))])),
   );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
   const selected = leaflets.find((l) => l.id === selectedId) ?? leaflets[0];
   const edit = edits[selected.id];
+  const sel = assortSel[selected.id];
 
-  // 現在の比率を反映したアイテム
+  // 全商品の参照マップ（productId → 商品情報）
+  const productById = useMemo(() => {
+    const m = new Map<string, WorkbenchItem>();
+    for (const l of leaflets) for (const it of l.items) if (!m.has(it.productId)) m.set(it.productId, it);
+    return m;
+  }, [leaflets]);
+
+  // アソート可能な仲間（同じ group_key・single:でない・自分以外）
+  const compatItems = useMemo<WorkbenchItem[]>(() => {
+    if (selected.groupKey.startsWith('single:')) return [];
+    const seen = new Set(selected.items.map((it) => it.productId));
+    const out: WorkbenchItem[] = [];
+    for (const l of leaflets) {
+      if (l.id === selected.id || l.groupKey !== selected.groupKey) continue;
+      for (const it of l.items) if (!seen.has(it.productId)) { seen.add(it.productId); out.push(it); }
+    }
+    return out;
+  }, [leaflets, selected]);
+
+  // 現在の選択を反映したアソート構成アイテム
   const editedItems = useMemo<WorkbenchItem[]>(
-    () => selected.items.map((it) => ({ ...it, ratio: edit.ratios[it.productId] ?? it.ratio })),
-    [selected, edit],
+    () => Object.entries(sel).map(([pid, ratio]) => ({ ...(productById.get(pid) as WorkbenchItem), ratio })),
+    [sel, productById],
   );
+  const isAssort = editedItems.length > 1;
   const sizing = useMemo(() => calcSizing(editedItems), [editedItems]);
   const leafForPreview = useMemo<WorkbenchLeaflet>(
-    () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note }),
-    [selected, edit],
+    () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, isSingle: !isAssort }),
+    [selected, edit, isAssort],
   );
   const previewHtml = useMemo(
     () => buildHtml(templateHtml, leafForPreview, editedItems, sizing),
@@ -193,33 +210,43 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
     setEdits((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], ...patch } }));
   }
   function setRatio(productId: string, ratio: number) {
-    setEdits((prev) => ({
-      ...prev,
-      [selected.id]: { ...prev[selected.id], ratios: { ...prev[selected.id].ratios, [productId]: ratio } },
-    }));
+    setAssortSel((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], [productId]: ratio } }));
+  }
+  function toggleCompat(item: WorkbenchItem, on: boolean) {
+    setAssortSel((prev) => {
+      const cur = { ...prev[selected.id] };
+      if (on) cur[item.productId] = 1;
+      else delete cur[item.productId];
+      return { ...prev, [selected.id]: cur };
+    });
   }
 
   async function handleSave() {
     setSaving(true);
     setMessage('');
     try {
-      // 比率を保存＆サーバ再計算（アソートのみ）
-      if (!selected.isSingle) {
-        await fetch(`/api/assort/${selected.groupId}/recalc`, {
+      if (isAssort) {
+        // 選択商品で新しいアソートリーフを作成
+        const res = await fetch('/api/assort/from-products', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ratios: editedItems.map((it) => ({ product_id: it.productId, ratio: it.ratio })),
+            sheetGroupId: selected.groupId,
+            items: editedItems.map((it) => ({ product_id: it.productId, ratio: it.ratio })),
+            leaf_name: edit.leafName,
+            lead_time: edit.leadTime,
           }),
         });
+        if (!res.ok) throw new Error();
+        setMessage('アソートリーフを作成しました。画面を更新すると一覧に表示されます。');
+      } else {
+        await fetch(`/api/leaflets/${selected.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ leaf_name: edit.leafName, lead_time: edit.leadTime }),
+        });
+        setMessage('保存しました');
       }
-      // リーフ情報を保存（note=セールスコピーは leaflets に列追加後に対応）
-      await fetch(`/api/leaflets/${selected.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leaf_name: edit.leafName, lead_time: edit.leadTime }),
-      });
-      setMessage('保存しました（セールスコピーはプレビューのみ・永続化は次段階）');
     } catch {
       setMessage('保存に失敗しました');
     } finally {
@@ -317,8 +344,36 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
           />
         </div>
 
-        {/* アソート比率スライダー */}
-        {!selected.isSingle && (
+        {/* アソート可能な仲間（複数選択でアソート化） */}
+        {compatItems.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <label className="block text-xs font-semibold text-amber-700 mb-2">
+              ＋ 他の種類もアソートできます（{compatItems.length}種）
+            </label>
+            <div className="space-y-1.5">
+              {compatItems.map((it) => {
+                const checked = it.productId in sel;
+                const wouldExceed = !checked && (sizing.setCost + it.cost) > SETTINGS.unitPriceCap;
+                return (
+                  <label key={it.productId} className={`flex items-center gap-2 text-xs ${wouldExceed ? 'opacity-40' : 'cursor-pointer'}`}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={wouldExceed}
+                      onChange={(e) => toggleCompat(it, e.target.checked)}
+                    />
+                    <span className="truncate flex-1 text-zinc-700">{it.productName}</span>
+                    <span className="text-zinc-400">{fmt(it.cost)}円</span>
+                  </label>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[10px] text-amber-600">単価合計が1,000円以内になる組み合わせのみ選べます</p>
+          </div>
+        )}
+
+        {/* アソート比率スライダー（2種以上選択時） */}
+        {isAssort && (
           <div>
             <label className="block text-xs font-medium text-zinc-500 mb-2">アソート比率</label>
             <div className="space-y-2">
@@ -330,7 +385,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
                   </div>
                   <input
                     type="range"
-                    min={0}
+                    min={1}
                     max={5}
                     value={it.ratio}
                     onChange={(e) => setRatio(it.productId, parseInt(e.target.value, 10))}
@@ -351,9 +406,9 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
         </div>
 
         <div className="flex flex-col gap-2 pt-1">
-          <button onClick={handleSave} disabled={saving}
+          <button onClick={handleSave} disabled={saving || !sizing.ok}
             className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
-            {saving ? '処理中…' : '保存（比率・情報）'}
+            {saving ? '処理中…' : isAssort ? 'この組み合わせでアソート作成' : '保存（情報）'}
           </button>
           <button onClick={handleGenerateImage} disabled={saving || !sizing.ok}
             className="rounded-lg border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
