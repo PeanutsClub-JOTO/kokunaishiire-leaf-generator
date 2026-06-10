@@ -108,7 +108,8 @@ export async function loadLeafletPdfData(
     shelfLifeDays: leaflet.shelf_life_days ?? firstProduct?.shelf_life_days ?? 0,
     pieceSize: leaflet.piece_size ?? firstProduct?.piece_size ?? null,
     janCode: firstProduct?.jan_code ?? null,
-    note: firstProduct?.note ?? null,
+    // リーフ単位のセールスコピー(note)を最優先。未設定なら商品noteにフォールバック。
+    note: leaflet.note ?? firstProduct?.note ?? null,
     imageUrl: firstProduct?.image_url ?? null,
     flagMessages,
   };
@@ -134,7 +135,8 @@ export async function loadLeafletImageData(
     leadTime: leaflet.lead_time ?? '受注後約1週間',
     shelfLifeDays: leaflet.shelf_life_days ?? firstProduct?.shelf_life_days ?? 0,
     pieceSize: leaflet.piece_size ?? firstProduct?.piece_size ?? null,
-    note: firstNote(items),
+    // リーフ単位のセールスコピー(note)を最優先。未設定なら商品noteにフォールバック。
+    note: leaflet.note ?? firstNote(items),
     productImages: uniqueImages(items),
     flagMessages,
   };

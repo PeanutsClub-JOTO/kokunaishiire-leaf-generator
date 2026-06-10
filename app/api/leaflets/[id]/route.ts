@@ -44,6 +44,7 @@ export async function PATCH(
     status?: 'draft' | 'final';
     leaf_name?: string;
     lead_time?: string;
+    note?: string;
   };
 
   const { data, error } = await supabase

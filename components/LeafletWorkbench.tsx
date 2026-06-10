@@ -1,5 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 // ─── 型 ───────────────────────────────────────────────────────────────────────
 export type WorkbenchItem = {
@@ -156,6 +157,8 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
 
 // ─── コンポーネント ────────────────────────────────────────────────────────────
 export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }: Props) {
+  void quotationId;
+  const router = useRouter();
   const [selectedId, setSelectedId] = useState(leaflets[0]?.id ?? '');
   const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string }>>(() =>
     Object.fromEntries(leaflets.map((l) => [l.id, { leafName: l.leafName, leadTime: l.leadTime, note: l.note ?? '' }])),
@@ -221,34 +224,54 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
     });
   }
 
+  // 単品リーフの情報を保存
   async function handleSave() {
     setSaving(true);
     setMessage('');
     try {
-      if (isAssort) {
-        // 選択商品で新しいアソートリーフを作成
-        const res = await fetch('/api/assort/from-products', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sheetGroupId: selected.groupId,
-            items: editedItems.map((it) => ({ product_id: it.productId, ratio: it.ratio })),
-            leaf_name: edit.leafName,
-            lead_time: edit.leadTime,
-          }),
-        });
-        if (!res.ok) throw new Error();
-        setMessage('アソートリーフを作成しました。画面を更新すると一覧に表示されます。');
-      } else {
-        await fetch(`/api/leaflets/${selected.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ leaf_name: edit.leafName, lead_time: edit.leadTime }),
-        });
-        setMessage('保存しました');
-      }
+      await fetch(`/api/leaflets/${selected.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leaf_name: edit.leafName, lead_time: edit.leadTime, note: edit.note }),
+      });
+      setMessage('保存しました');
+      router.refresh();
     } catch {
       setMessage('保存に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // アソート作成＋そのまま画像生成（選択商品から新リーフを作る）
+  async function handleCreateAssort() {
+    setSaving(true);
+    setMessage('');
+    try {
+      const res = await fetch('/api/assort/from-products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sheetGroupId: selected.groupId,
+          items: editedItems.map((it) => ({ product_id: it.productId, ratio: it.ratio })),
+          leaf_name: edit.leafName,
+          lead_time: edit.leadTime,
+          note: edit.note,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(data.error ?? 'アソート作成に失敗しました');
+        return;
+      }
+      // 作成された新リーフに対して画像生成を依頼
+      if (data.leaflet?.id) {
+        await fetch(`/api/leaflets/${data.leaflet.id}/image`, { method: 'POST' });
+      }
+      setMessage('アソートリーフを作成し、画像生成を依頼しました。');
+      router.refresh();
+    } catch {
+      setMessage('アソート作成に失敗しました');
     } finally {
       setSaving(false);
     }
@@ -406,14 +429,25 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
         </div>
 
         <div className="flex flex-col gap-2 pt-1">
-          <button onClick={handleSave} disabled={saving || !sizing.ok}
-            className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
-            {saving ? '処理中…' : isAssort ? 'この組み合わせでアソート作成' : '保存（情報）'}
-          </button>
-          <button onClick={handleGenerateImage} disabled={saving || !sizing.ok}
-            className="rounded-lg border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
-            リーフ画像を生成
-          </button>
+          {isAssort ? (
+            // アソート選択中: 作成＋画像生成を一括
+            <button onClick={handleCreateAssort} disabled={saving || !sizing.ok}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+              {saving ? '処理中…' : 'この組み合わせでアソート作成＋画像生成'}
+            </button>
+          ) : (
+            // 単品: 情報保存 と 画像生成を分離
+            <>
+              <button onClick={handleSave} disabled={saving}
+                className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+                {saving ? '処理中…' : '情報を保存'}
+              </button>
+              <button onClick={handleGenerateImage} disabled={saving || !sizing.ok}
+                className="rounded-lg border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
+                リーフ画像を生成
+              </button>
+            </>
+          )}
           {message && <p className="text-xs text-zinc-500">{message}</p>}
         </div>
       </aside>

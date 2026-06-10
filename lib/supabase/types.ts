@@ -211,6 +211,7 @@ export type Database = {
           lead_time: string | null;
           shelf_life_days: number | null;
           piece_size: string | null;
+          note: string | null;
           status: 'draft' | 'final';
           pdf_url: string | null;
           leaf_image_url: string | null;
@@ -236,6 +237,7 @@ export type Database = {
           lead_time?: string | null;
           shelf_life_days?: number | null;
           piece_size?: string | null;
+          note?: string | null;
           status?: 'draft' | 'final';
           pdf_url?: string | null;
           leaf_image_url?: string | null;

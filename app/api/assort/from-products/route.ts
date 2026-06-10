@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     items: { product_id: string; ratio: number }[];
     leaf_name?: string;
     lead_time?: string;
+    note?: string;
   };
 
   if (!body.sheetGroupId || !body.items || body.items.length < 2) {
@@ -71,19 +72,37 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 新しいアソートグループを作成
-  const { data: group, error: gErr } = await supabase
+  // 同じ組み合わせのアソートが既にあれば再利用（重複生成防止）
+  const comboKey = `assort:${[...productIds].sort().join('+')}`;
+  const { data: existing } = await supabase
     .from('assort_groups')
-    .insert({ sheet_id: baseGroup.sheet_id, group_key: `assort:${productIds.sort().join('+')}`, is_single: false })
-    .select()
-    .single();
-  if (gErr || !group) {
-    return NextResponse.json({ error: `group作成失敗: ${gErr?.message}` }, { status: 500 });
-  }
+    .select('id')
+    .eq('sheet_id', baseGroup.sheet_id)
+    .eq('group_key', comboKey)
+    .maybeSingle();
 
-  await supabase.from('assort_items').insert(
-    body.items.map((i) => ({ group_id: group.id, product_id: i.product_id, ratio: i.ratio })),
-  );
+  let groupId: string;
+  if (existing) {
+    groupId = existing.id;
+    // 既存の構成・リーフを今回の比率で更新
+    await supabase.from('assort_items').delete().eq('group_id', groupId);
+    await supabase.from('assort_items').insert(
+      body.items.map((i) => ({ group_id: groupId, product_id: i.product_id, ratio: i.ratio })),
+    );
+  } else {
+    const { data: group, error: gErr } = await supabase
+      .from('assort_groups')
+      .insert({ sheet_id: baseGroup.sheet_id, group_key: comboKey, is_single: false })
+      .select()
+      .single();
+    if (gErr || !group) {
+      return NextResponse.json({ error: `group作成失敗: ${gErr?.message}` }, { status: 500 });
+    }
+    groupId = group.id;
+    await supabase.from('assort_items').insert(
+      body.items.map((i) => ({ group_id: groupId, product_id: i.product_id, ratio: i.ratio })),
+    );
+  }
 
   // 賞味期限はグループ内最短
   const shelfValues = products.map((p) => p.shelf_life_days).filter((d): d is number => d != null);
@@ -91,26 +110,46 @@ export async function POST(req: NextRequest) {
 
   const leafName = body.leaf_name ?? products.map((p) => p.product_name).filter(Boolean).join('・');
 
-  const { data: leaflet, error: lErr } = await supabase
+  const leafFields = {
+    leaf_name: leafName,
+    item_count: products.length,
+    leaf_qty: sizing.leafQty,
+    cost_total: sizing.costTotal,
+    wholesale_price: sizing.costTotal,
+    unit_price: sizing.unitPrice,
+    is_half_ok: sizing.isHalfOk,
+    shelf_life_days: shelfDays,
+    lead_time: body.lead_time ?? '受注後約1週間',
+    note: body.note ?? null,
+    status: 'draft' as const,
+  };
+
+  // 既存グループ再利用時はリーフを更新、新規時は作成
+  const { data: existingLeaf } = await supabase
     .from('leaflets')
-    .insert({
-      group_id: group.id,
-      leaf_name: leafName,
-      item_count: products.length,
-      leaf_qty: sizing.leafQty,
-      cost_total: sizing.costTotal,
-      wholesale_price: sizing.costTotal,
-      unit_price: sizing.unitPrice,
-      is_half_ok: sizing.isHalfOk,
-      shelf_life_days: shelfDays,
-      lead_time: body.lead_time ?? '受注後約1週間',
-      status: 'draft',
-    })
-    .select()
-    .single();
-  if (lErr) {
-    return NextResponse.json({ error: `leaflet作成失敗: ${lErr.message}` }, { status: 500 });
+    .select('id')
+    .eq('group_id', groupId)
+    .maybeSingle();
+
+  let leaflet: { id: string } | null = null;
+  if (existingLeaf) {
+    const { data, error: uErr } = await supabase
+      .from('leaflets')
+      .update(leafFields)
+      .eq('id', existingLeaf.id)
+      .select()
+      .single();
+    if (uErr) return NextResponse.json({ error: `leaflet更新失敗: ${uErr.message}` }, { status: 500 });
+    leaflet = data;
+  } else {
+    const { data, error: lErr } = await supabase
+      .from('leaflets')
+      .insert({ group_id: groupId, ...leafFields })
+      .select()
+      .single();
+    if (lErr) return NextResponse.json({ error: `leaflet作成失敗: ${lErr.message}` }, { status: 500 });
+    leaflet = data;
   }
 
-  return NextResponse.json({ group_id: group.id, leaflet, sizing });
+  return NextResponse.json({ group_id: groupId, leaflet, sizing });
 }
