@@ -101,7 +101,11 @@ export function passes(
   const reasons: string[] = [];
 
   if (!r.ok) {
-    reasons.push('max_lots<1(cost_over)');
+    if (r.reason === 'assort_unit_price_over') {
+      reasons.push('assort_unit_price_over');
+    } else {
+      reasons.push('max_lots<1(cost_over)');
+    }
   }
   if (r.ok && r.unitPrice > s.unitPriceCap) {
     reasons.push('unit_price>cap');
@@ -143,6 +147,9 @@ export type AssortType = {
  * アソートサイジング (§6.3)
  *
  * 1アソートロット = 各種類が ratio_i × minLotQty_i 個ずつ入るセット
+ *
+ * 追加チェック: アソートは unitPrice × アイテム数 ≤ 1000 を通過条件とする。
+ * (単品の単価上限1000円をアイテム数で按分した考え方)
  */
 export function planAssort(
   types: AssortType[],
@@ -154,6 +161,17 @@ export function planAssort(
     0,
   );
   const result = sizeByMaxLot(lotPrice, lotQty, s);
+
+  // アソート専用: 単価 × アイテム数 > 1000円 → NG
+  if (result.ok && result.unitPrice * types.length > 1000) {
+    return {
+      ...result,
+      ok: false,
+      reason: 'assort_unit_price_over',
+      itemCount: types.length,
+    };
+  }
+
   return { ...result, itemCount: types.length };
 }
 
@@ -175,6 +193,9 @@ export function calcAlertFlags(
   }
   if (!r.ok && r.reason === 'cost_over') {
     flags.push('cost_over');
+  }
+  if (!r.ok && r.reason === 'assort_unit_price_over') {
+    flags.push('assort_unit_price_over');
   }
   if (r.ok && r.wholesale > 45000) {
     flags.push('wholesale_over');

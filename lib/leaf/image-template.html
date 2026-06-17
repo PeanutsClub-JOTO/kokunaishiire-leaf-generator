@@ -10,418 +10,384 @@
     src: url('{{FONT_URL}}') format('truetype');
     font-weight: 400 900;
   }
-  * {
-    box-sizing: border-box;
-  }
-  html,
-  body {
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
     width: 1540px;
     height: 970px;
-    margin: 0;
-    padding: 0;
     overflow: hidden;
   }
   body {
     font-family: 'LeafJP', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
-    color: #111;
-    background: #fff4c4;
   }
+
+  /* ─── ルート変数（テーマで上書き） ─── */
+  :root {
+    --stripe-a: #ffe68b;
+    --stripe-b: #fff9df;
+    --copy-color: #7a3a10;
+    --copy-shadow: #fff7d0;
+    --accent: #f0bf5a;
+    --accent-strong: #e01818;
+    --bar-bg: #fffdf8;
+    --bar-border: #f0bf5a;
+  }
+
+  /* ─── テーマ: スナック・ポップコーン ─── */
+  .theme-snack {
+    --stripe-a: #ffda52;
+    --stripe-b: #fff3bd;
+    --copy-color: #7a2000;
+    --copy-shadow: #fff0a0;
+    --accent: #f05a28;
+    --accent-strong: #d71920;
+  }
+  /* ─── テーマ: 和菓子 ─── */
+  .theme-wagashi {
+    --stripe-a: #f7e7df;
+    --stripe-b: #fff8ef;
+    --copy-color: #6f2f2a;
+    --copy-shadow: #fff0e3;
+    --accent: #c78f74;
+    --accent-strong: #b4384a;
+    --bar-bg: #fffaf3;
+    --bar-border: #c78f74;
+  }
+  /* ─── テーマ: スイーツ・チョコ ─── */
+  .theme-sweets {
+    --stripe-a: #f6d6aa;
+    --stripe-b: #fff1df;
+    --copy-color: #5c2a0a;
+    --copy-shadow: #ffe5c0;
+    --accent: #b77945;
+    --accent-strong: #d33131;
+    --bar-border: #b77945;
+  }
+  /* ─── テーマ: さっぱり・涼感 ─── */
+  .theme-cool {
+    --stripe-a: #c8efff;
+    --stripe-b: #effbff;
+    --copy-color: #174f7a;
+    --copy-shadow: #e0f7ff;
+    --accent: #49aee8;
+    --accent-strong: #e01846;
+    --bar-border: #49aee8;
+  }
+  /* ─── テーマ: フルーツ・ゼリー ─── */
+  .theme-fruit {
+    --stripe-a: #ffe08c;
+    --stripe-b: #fff6dd;
+    --copy-color: #7a3500;
+    --copy-shadow: #fff3c0;
+    --accent: #ff9f3f;
+    --accent-strong: #e84a2a;
+    --bar-border: #ff9f3f;
+  }
+
+  /* ─── 外枠 ─── */
   .leaf {
     position: relative;
     width: 1540px;
     height: 970px;
     overflow: hidden;
-    --stripe-a: #ffe68b;
-    --stripe-b: #fff9df;
-    --accent: #f0bf5a;
-    --accent-strong: #e01818;
-    --accent-dark: #7a3a10;
-    --shadow: #b96900;
-    --soft-a: #ffd36a;
-    --soft-b: #ffe8a0;
-    --card-bg: #fffdf8;
-    --info-bg: #fffdf8;
-    --half-bg: #001ee6;
-    border: 7px solid var(--accent);
     background:
-      repeating-linear-gradient(90deg, var(--stripe-a) 0 34px, var(--stripe-b) 34px 64px);
+      repeating-linear-gradient(90deg, var(--stripe-a) 0 40px, var(--stripe-b) 40px 80px);
+    border: 6px solid var(--accent);
   }
-  .leaf.theme-fruit {
-    --stripe-a: #ffe08c;
-    --stripe-b: #fff6dd;
-    --accent: #ff9f3f;
-    --accent-strong: #e84a2a;
-    --accent-dark: #8a3d00;
-    --shadow: #d25f00;
-    --soft-a: #ffbe64;
-    --soft-b: #fff0a8;
-    --half-bg: #0087cf;
-  }
-  .leaf.theme-wagashi {
-    --stripe-a: #f7e7df;
-    --stripe-b: #fff8ef;
-    --accent: #c78f74;
-    --accent-strong: #b4384a;
-    --accent-dark: #6f2f2a;
-    --shadow: #8b5b45;
-    --soft-a: #f2c9c3;
-    --soft-b: #fff0e3;
-    --card-bg: #fffaf3;
-    --half-bg: #6d3f99;
-  }
-  .leaf.theme-snack {
-    --stripe-a: #ffda52;
-    --stripe-b: #fff3bd;
-    --accent: #f05a28;
-    --accent-strong: #d71920;
-    --accent-dark: #803100;
-    --shadow: #b53300;
-    --soft-a: #ffb62e;
-    --soft-b: #fff1a1;
-    --half-bg: #003ee6;
-  }
-  .leaf.theme-sweets {
-    --stripe-a: #f6d6aa;
-    --stripe-b: #fff1df;
-    --accent: #b77945;
-    --accent-strong: #d33131;
-    --accent-dark: #67350f;
-    --shadow: #7f4b24;
-    --soft-a: #dfaa72;
-    --soft-b: #ffe1c1;
-    --half-bg: #bd2c72;
-  }
-  .leaf.theme-cool {
-    --stripe-a: #c8efff;
-    --stripe-b: #effbff;
-    --accent: #49aee8;
-    --accent-strong: #e01846;
-    --accent-dark: #174f7a;
-    --shadow: #1d76a8;
-    --soft-a: #95dcff;
-    --soft-b: #dbf7ff;
-    --half-bg: #005bd8;
-  }
-  .leaf::before,
-  .leaf::after {
-    content: "";
-    position: absolute;
-    border-radius: 999px;
-    filter: blur(42px);
-    opacity: .7;
-    pointer-events: none;
-  }
-  .leaf::before {
-    right: -110px;
-    top: 70px;
-    width: 560px;
-    height: 560px;
-    background: var(--soft-a);
-  }
-  .leaf::after {
-    right: 110px;
-    bottom: 120px;
-    width: 500px;
-    height: 350px;
-    background: var(--soft-b);
-  }
-  .theme-wagashi .leaf-pattern,
-  .theme-cool .leaf-pattern {
+
+  /* AI背景 — テンプレートにスタイルを注入 */
+  .leaf-bg {
     position: absolute;
     inset: 0;
-    opacity: .28;
-    pointer-events: none;
+    background-size: cover;
+    background-position: center;
+    /* {{AI_BG_STYLE}} — JSで注入 */
   }
-  .theme-wagashi .leaf-pattern {
-    background:
-      radial-gradient(circle at 80px 80px, transparent 0 48px, #d7a18c 49px 51px, transparent 52px),
-      radial-gradient(circle at 170px 155px, transparent 0 36px, #e6b5a0 37px 39px, transparent 40px);
-    background-size: 230px 190px;
-  }
-  .theme-cool .leaf-pattern {
-    background:
-      radial-gradient(circle at 70px 70px, rgba(255,255,255,.85) 0 12px, transparent 13px),
-      radial-gradient(circle at 150px 120px, rgba(255,255,255,.7) 0 8px, transparent 9px);
-    background-size: 210px 170px;
-  }
-  .main {
+
+  /* 上部: キャッチコピーエリア */
+  .copy-area {
     position: absolute;
-    inset: 0 0 132px 0;
-    padding: 30px 54px 34px;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 142px;
+    padding: 14px 36px 0 36px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
   }
-  .copy {
-    position: relative;
-    z-index: 2;
-    width: 980px;
+  .copy-text {
+    color: var(--copy-color);
+    font-size: 52px;
+    font-weight: 900;
+    line-height: 1.2;
+    text-shadow: 3px 3px 0 var(--copy-shadow), -1px -1px 0 var(--copy-shadow);
+    letter-spacing: -0.01em;
     max-height: 130px;
-    color: var(--accent-dark);
-    font-size: 50px;
-    line-height: 1.24;
-    font-weight: 900;
-    letter-spacing: 0;
-    text-shadow: 3px 3px 0 #fff7e3;
     overflow: hidden;
   }
-  .visual-grid {
+
+  /* 商品画像エリア — キャッチコピー下から情報バー上まで */
+  .product-area {
     position: absolute;
-    left: 62px;
-    right: 62px;
-    bottom: 48px;
-    top: 190px;
+    top: 138px;
+    left: 0;
+    right: 0;
+    bottom: 130px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 24px;
+    gap: 20px;
+    z-index: 5;
+    background: transparent;
+  }
+
+  /* 単品: 画像1枚を大きく */
+  .product-area.single img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    mix-blend-mode: multiply;
+  }
+
+  /* アソート2種: 2分割 */
+  .product-area.assort-2 img {
+    width: 48%;
+    height: 100%;
+    object-fit: contain;
+    mix-blend-mode: multiply;
+  }
+
+  /* アソート3種: 3分割 */
+  .product-area.assort-3 img {
+    width: 32%;
+    height: 100%;
+    object-fit: contain;
+    mix-blend-mode: multiply;
+  }
+
+  /* アソート4種以上: 2×2グリッド */
+  .product-area.assort-4 {
     display: grid;
-    grid-template-columns: 638px 1fr;
-    gap: 54px;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 14px;
+    padding: 14px 24px;
+    align-items: unset;
+    justify-items: center;
   }
-  .hero-card,
-  .copy-card {
-    position: relative;
-    min-width: 0;
-    border-radius: 32px;
-    overflow: hidden;
-  }
-  /* 商品画像側は枠なし（背景・影なし） */
-  .hero-card {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 12px;
-  }
-  /* テキスト側カードのみ枠を残す */
-  .copy-card {
-    border: 5px solid var(--accent);
-    background: var(--card-bg);
-    box-shadow: 12px 16px 0 var(--shadow);
-  }
-  .hero-card.assort {
-    padding: 26px;
-  }
-  .hero-image {
+  .product-area.assort-4 img {
     width: 100%;
     height: 100%;
     object-fit: contain;
-    filter: drop-shadow(16px 18px 0 rgba(0,0,0,.18));
+    mix-blend-mode: multiply;
   }
-  .assort-grid {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-auto-rows: minmax(0, 1fr);
-    gap: 18px;
-  }
-  .assort-grid img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
-  .image-placeholder {
-    width: 100%;
-    height: 100%;
+
+  /* 商品画像プレースホルダー */
+  .img-placeholder {
+    width: 320px;
+    height: 320px;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 3px dashed #e2b85f;
-    border-radius: 24px;
-    color: #8a5a16;
-    font-size: 34px;
-    font-weight: 800;
-    background: var(--stripe-b);
+    border: 3px dashed var(--accent);
+    border-radius: 18px;
+    color: var(--copy-color);
+    font-size: 28px;
+    font-weight: 700;
+    opacity: 0.5;
+    background: rgba(255,255,255,0.4);
   }
-  .copy-card {
-    padding: 66px 60px 44px;
-  }
-  .sales-copy {
-    width: 430px;
-    max-height: 235px;
-    color: var(--accent-dark);
-    font-size: 39px;
-    line-height: 1.34;
-    font-weight: 900;
-    overflow: hidden;
-    overflow-wrap: anywhere;
-  }
-  .sub-image-frame {
-    position: absolute;
-    right: 50px;
-    bottom: 50px;
-    width: 255px;
-    height: 245px;
-    border-radius: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px;
-  }
-  .sub-image-frame img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-  }
-  .info-strip {
+
+  /* ─── 下部固定情報バー ─── */
+  .info-bar {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
-    height: 132px;
-    background: #fffdf8;
-    border-top: 4px solid var(--accent);
-    padding: 10px 22px 12px;
+    height: 130px;
+    background: var(--bar-bg);
+    border-top: 5px solid var(--bar-border);
+    z-index: 20;
+    padding: 8px 20px 8px 20px;
   }
+
+  /* 商品コード（極小・薄い） */
   .product-code {
     color: #9ca3af;
     font-size: 11px;
     font-weight: 500;
     line-height: 1;
-    height: 14px;
+    height: 13px;
     letter-spacing: 0;
   }
+
+  /* 商品名 */
   .product-name {
     position: absolute;
-    left: 22px;
-    top: 42px;
-    width: 520px;
-    height: 42px;
-    color: #111;
+    left: 20px;
+    top: 32px;
+    width: 560px;
     font-size: 38px;
-    line-height: 1.08;
     font-weight: 900;
-    overflow: hidden;
+    line-height: 1.05;
+    color: #111;
     white-space: nowrap;
+    overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  /* 数値メトリクス行 */
   .metrics {
     position: absolute;
-    left: 42px;
+    left: 38px;
     bottom: 10px;
-    height: 48px;
+    height: 50px;
     display: grid;
-    grid-template-columns: 150px 145px 330px 160px;
+    grid-template-columns: 160px 155px 340px 170px;
     align-items: end;
-    column-gap: 34px;
+    column-gap: 30px;
   }
-  .metric {
-    white-space: nowrap;
-  }
+  .metric { white-space: nowrap; }
   .metric .num {
     color: var(--accent-strong);
-    font-size: 38px;
+    font-size: 40px;
     font-weight: 900;
-    line-height: .95;
+    line-height: 0.95;
   }
-  .metric .label {
+  .metric .lbl {
     color: #111;
-    font-size: 19px;
+    font-size: 20px;
     font-weight: 700;
-    margin-left: 8px;
+    margin-left: 6px;
   }
-  .metric.price .label:first-child,
-  .metric.unit .label:first-child {
-    margin-left: 0;
-    margin-right: 12px;
-  }
+  .metric .lbl.pre { margin-left: 0; margin-right: 10px; }
+
+  /* 詳細情報（サイズ・賞味期限） */
   .details {
     position: absolute;
-    left: 840px;
-    top: 23px;
-    width: 310px;
-    color: #111;
+    right: 400px;
+    top: 18px;
+    width: 280px;
     font-size: 17px;
-    line-height: 1.58;
     font-weight: 700;
+    color: #111;
+    line-height: 1.65;
+  }
+  .details div::before {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 7px;
+    border-radius: 50%;
+    background: #111;
+    vertical-align: -1px;
   }
   .details div {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .details div::before {
-    content: "";
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    margin-right: 8px;
-    border-radius: 50%;
-    background: #111;
-    vertical-align: -1px;
-  }
+
+  /* 受注後納期 */
   .lead-time {
     position: absolute;
-    right: 174px;
-    top: 30px;
-    width: 205px;
+    right: 168px;
+    top: 28px;
+    width: 210px;
     border-top: 4px solid var(--accent-strong);
     border-bottom: 4px solid var(--accent-strong);
     color: var(--accent-strong);
     text-align: center;
-    font-size: 25px;
-    line-height: 46px;
+    font-size: 24px;
+    line-height: 48px;
     font-weight: 900;
     white-space: nowrap;
   }
+
+  /* ハーフ可否 */
   .half {
     position: absolute;
-    right: 24px;
-    top: 26px;
-    width: 140px;
-    height: 58px;
+    right: 22px;
+    top: 24px;
+    width: 136px;
+    height: 60px;
     display: flex;
     align-items: center;
     justify-content: center;
     color: #fff;
-    background: var(--half-bg);
-    font-size: 17px;
+    background: #001ee6;
+    font-size: 18px;
     font-weight: 800;
+    letter-spacing: 0.05em;
   }
+  .half.ng { background: #555; }
+
+  /* PJ番号 */
   .pj {
     position: absolute;
-    right: 26px;
-    bottom: 13px;
-    width: 170px;
-    text-align: left;
-    color: #111;
+    right: 24px;
+    bottom: 12px;
     font-size: 16px;
     font-weight: 700;
+    color: #111;
     white-space: nowrap;
   }
-  .hidden {
-    display: none;
+
+  /* 仮リーフ表示 */
+  .draft-badge {
+    position: absolute;
+    top: 148px;
+    right: 14px;
+    background: #f59e0b;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 800;
+    padding: 4px 12px;
+    border-radius: 4px;
+    z-index: 30;
+    letter-spacing: 0.05em;
   }
+  .draft-badge.hidden { display: none; }
 </style>
 </head>
 <body>
 <div class="leaf {{THEME_CLASS}}">
-  <div class="leaf-pattern"></div>
-  <main class="main">
-    <div class="copy js-fit" data-min-font="34">{{MAIN_COPY}}</div>
-    <section class="visual-grid">
-      <div class="hero-card {{ASSORT_CLASS}}">
-        {{HERO_IMAGE_HTML}}
-      </div>
-      <div class="copy-card">
-        <div class="sales-copy js-fit" data-min-font="27">{{SALES_COPY}}</div>
-        <div class="sub-image-frame">
-          {{SUB_IMAGE_HTML}}
-        </div>
-      </div>
-    </section>
-  </main>
 
-  <footer class="info-strip">
+  <!-- AI生成背景 or CSSストライプのみ -->
+  <div class="leaf-bg" style="{{AI_BG_STYLE}}"></div>
+
+  <!-- 仮リーフバッジ -->
+  <div class="draft-badge {{DRAFT_CLASS}}">{{STATUS_LABEL}}</div>
+
+  <!-- キャッチコピー -->
+  <div class="copy-area">
+    <div class="copy-text js-fit" data-min-font="32">{{MAIN_COPY}}</div>
+  </div>
+
+  <!-- 商品画像エリア -->
+  <div class="product-area {{PRODUCT_AREA_CLASS}}">
+    {{PRODUCT_IMAGES_HTML}}
+  </div>
+
+  <!-- 情報バー -->
+  <footer class="info-bar">
     <div class="product-code">{{PRODUCT_CODE}}</div>
-    <div class="product-name js-fit-width" data-min-font="26">{{LEAF_NAME}}</div>
+    <div class="product-name js-fit-width" data-min-font="24">{{LEAF_NAME}}</div>
 
     <div class="metrics">
       <div class="metric">
-        <span class="num">{{ITEM_COUNT}}</span><span class="label">アイテム</span>
+        <span class="num">{{ITEM_COUNT}}</span><span class="lbl">アイテム</span>
       </div>
       <div class="metric">
-        <span class="num">{{LEAF_QTY}}</span><span class="label">個入</span>
+        <span class="num">{{LEAF_QTY}}</span><span class="lbl">個入</span>
       </div>
-      <div class="metric price">
-        <span class="label">卸価格</span><span class="num">{{WHOLESALE_PRICE}}</span><span class="label">円(税別)</span>
+      <div class="metric">
+        <span class="lbl pre">卸価格</span><span class="num">{{WHOLESALE_PRICE}}</span><span class="lbl">円(税別)</span>
       </div>
-      <div class="metric unit">
-        <span class="label">単価</span><span class="num">{{UNIT_PRICE}}</span><span class="label">円</span>
+      <div class="metric">
+        <span class="lbl pre">単価</span><span class="num">{{UNIT_PRICE}}</span><span class="lbl">円</span>
       </div>
     </div>
 
@@ -429,30 +395,36 @@
       <div>商品サイズ / {{PIECE_SIZE}}</div>
       <div>賞味期限 / {{SHELF_LIFE_DAYS}}日</div>
     </div>
-    <div class="lead-time js-fit-width" data-min-font="18">{{LEAD_TIME}}</div>
-    <div class="half">ハーフ　{{HALF_LABEL}}</div>
+    <div class="lead-time js-fit-width" data-min-font="16">{{LEAD_TIME}}</div>
+    <div class="half {{HALF_NG_CLASS}}">ハーフ　{{HALF_LABEL}}</div>
     <div class="pj">PJ番号　{{PJ_NO}}</div>
   </footer>
+
 </div>
 <script>
-  function fitBox(el, minFont) {
+  /* テキストをボックス内に収まるようフォントを縮小 */
+  function fitHeight(el, minFont) {
     var size = parseFloat(window.getComputedStyle(el).fontSize);
     while ((el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) && size > minFont) {
       size -= 1;
       el.style.fontSize = size + 'px';
     }
   }
-  document.querySelectorAll('.js-fit').forEach(function (el) {
-    fitBox(el, Number(el.dataset.minFont || 24));
-  });
-  document.querySelectorAll('.js-fit-width').forEach(function (el) {
+  function fitWidth(el, minFont) {
     var size = parseFloat(window.getComputedStyle(el).fontSize);
-    var minFont = Number(el.dataset.minFont || 18);
     while (el.scrollWidth > el.clientWidth && size > minFont) {
       size -= 1;
       el.style.fontSize = size + 'px';
     }
+  }
+  document.querySelectorAll('.js-fit').forEach(function(el) {
+    fitHeight(el, Number(el.dataset.minFont || 28));
   });
+  document.querySelectorAll('.js-fit-width').forEach(function(el) {
+    fitWidth(el, Number(el.dataset.minFont || 16));
+  });
+
+  /* 画像はCSSの object-fit: contain で制御するためJS制御は不要になりました */
 </script>
 </body>
 </html>

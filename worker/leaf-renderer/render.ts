@@ -71,9 +71,22 @@ export async function renderLeafImageBuffer(data: LeafletImageData): Promise<Buf
   const page = await browser.newPage();
 
   try {
-    await page.setViewport({ width: 1540, height: 970, deviceScaleFactor: 1 });
-    await page.setContent(html, { waitUntil: 'load', timeout: 20000 });
+    await page.setViewport({ width: 1540, height: 970, deviceScaleFactor: 2 });
+    await page.setContent(html, { waitUntil: 'load', timeout: 30000 });
     await page.evaluateHandle('document.fonts.ready');
+    // 全 <img> が読み込まれるまで待機（外部URL画像対応）
+    await page.evaluate(() =>
+      Promise.all(
+        [...document.querySelectorAll('img')].map((img) =>
+          (img as HTMLImageElement).complete
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                img.addEventListener('load', () => resolve());
+                img.addEventListener('error', () => resolve());
+              }),
+        ),
+      ),
+    );
     const image = await page.screenshot({
       type: 'png',
       fullPage: false,

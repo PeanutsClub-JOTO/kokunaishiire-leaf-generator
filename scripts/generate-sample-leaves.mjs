@@ -154,7 +154,10 @@ function planSingle(p){ return size(p.cost*p.min_lot_qty, p.min_lot_qty); }
 function planAssort(ps){
   const lp=ps.reduce((a,p)=>a+p.cost*p.min_lot_qty,0);
   const lq=ps.reduce((a,p)=>a+p.min_lot_qty,0);
-  return{...size(lp,lq),itemCount:ps.length};
+  const res=size(lp,lq);
+  // アソート専用: 単価 × アイテム数 > 1000円 → NG
+  if(res.ok && res.unitPrice*ps.length>1000){res.ok=false;res.reason='assort_unit_price_over';}
+  return{...res,itemCount:ps.length};
 }
 
 // ─── 4. テンプレート ──────────────────────────────────────────────────────────

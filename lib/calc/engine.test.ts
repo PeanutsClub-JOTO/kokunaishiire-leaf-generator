@@ -171,7 +171,7 @@ describe('planSingle — §6.4 フィクスチャ', () => {
 // ============================================================
 describe('planAssort — §6.4 フィクスチャ', () => {
   // ⑥+⑦ (cost=460, minLot=12, ratio 1:1)
-  it('⑥+⑦ アソート: lotQty=24, lotPrice=11040, maxLots=2, leafQty=48, wholesale=31350, unitPrice≈653.1', () => {
+  it('⑦+⑧ アソート: lotQty=24, lotPrice=11040, maxLots=2, leafQty=48, wholesale=31350, unitPrice≈653.1 (アソート単価オーバー)', () => {
     const r = planAssort(
       [
         { cost: 460, minLotQty: 12, ratio: 1 },
@@ -179,23 +179,14 @@ describe('planAssort — §6.4 フィクスチャ', () => {
       ],
       S,
     );
-    expect(r.ok).toBe(true);
-    // lotPrice = 460×12×1 + 460×12×1 = 11040
-    expect(r.minLotPrice).toBe(11040);
-    // lotQty = 12+12 = 24
-    expect(r.leafQty / r.maxLots).toBe(24);
-    // maxLots = floor(33000/11040) = 2
-    expect(r.maxLots).toBe(2);
-    expect(r.leafQty).toBe(48);
-    expect(round1(r.wholesale)).toBe(31350);
-    expect(round1(r.unitPrice)).toBe(653.1);
-    // isHalfOk: 1ロット価格=11040 <= 16500 → true（仕様書§3。旧式 wholesale/2 では誤って false だった）
-    expect(r.isHalfOk).toBe(true);
+    // unitPrice ≈ 653.1 × 2アイテム = 1306.2 > 1000 → assort_unit_price_over
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('assort_unit_price_over');
     expect(r.itemCount).toBe(2);
   });
 
   // ⑨+⑩ (cost=660, minLot=8, ratio 1:1)
-  it('⑨+⑩ アソート: lotQty=16, lotPrice=10560, maxLots=3, leafQty=48, wholesale=43350, unitPrice≈903.1', () => {
+  it('⑨+⑩ アソート: lotQty=16, lotPrice=10560, maxLots=3, leafQty=48, wholesale=43350, unitPrice≈903.1 (アソート単価オーバー)', () => {
     const r = planAssort(
       [
         { cost: 660, minLotQty: 8, ratio: 1 },
@@ -203,14 +194,9 @@ describe('planAssort — §6.4 フィクスチャ', () => {
       ],
       S,
     );
-    expect(r.ok).toBe(true);
-    // lotPrice = 660×8 + 660×8 = 10560
-    expect(r.minLotPrice).toBe(10560);
-    expect(r.maxLots).toBe(3);
-    expect(r.leafQty).toBe(48);
-    expect(round1(r.wholesale)).toBe(43350);
-    expect(round1(r.unitPrice)).toBe(903.1);
-    expect(r.isHalfOk).toBe(true);
+    // unitPrice ≈ 903.1 × 2アイテム = 1806.2 > 1000 → assort_unit_price_over
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe('assort_unit_price_over');
     expect(r.itemCount).toBe(2);
   });
 

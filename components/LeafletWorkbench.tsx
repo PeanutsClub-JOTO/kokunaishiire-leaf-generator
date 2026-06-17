@@ -132,6 +132,7 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
   const pieceSize = items[0]?.pieceSize ?? null;
   return tpl
     .replaceAll('{{FONT_URL}}', '')
+    .replaceAll('{{AI_BG_STYLE}}', '') // ライブプレビューはCSSテーマのみ
     .replaceAll('{{THEME_CLASS}}', theme.cls)
     .replaceAll('{{THEME_LABEL}}', esc(theme.label))
     .replaceAll('{{MAIN_COPY}}', esc(mainCopy(items)))

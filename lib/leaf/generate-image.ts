@@ -1,8 +1,14 @@
 /**
  * リーフ画像生成 (横長販促画像)
  *
- * 最終出力は営業確認・メール添付向けの PNG/JPEG。
+ * 最終出力は営業確認・メール添付向けの PNG。
  * API リクエスト内で長時間レンダリングしないよう、本番ではワーカーへ委譲する。
+ *
+ * レイアウト方針（参考リーフレット準拠）:
+ *   - 上部: キャッチコピー（大・太字・左寄せ）
+ *   - 中央: 商品画像を大きく直置き（枠・カードなし）
+ *   - 下部: 固定情報バー（商品名・入数・卸価格・単価・サイズ・賞味期限・ハーフ）
+ *   - 背景: Imagen3 AI生成（カテゴリ別雰囲気）or CSSストライプ
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -23,8 +29,13 @@ export type LeafletImageData = {
   shelfLifeDays: number;
   pieceSize: string | null;
   note: string | null;
+  /** 見積書から抽出した商品画像（data URL または絶対パス）*/
   productImages: string[];
   flagMessages: string[];
+  /** AI生成キャッチコピー（未設定ならルールベースにフォールバック） */
+  catchphrase?: { main_copy: string; sub_copy: string } | null;
+  /** AI生成背景画像のデータURL（未設定ならCSSストライプ） */
+  aiBgDataUrl?: string | null;
 };
 
 export type GenerateImageResult = {
@@ -32,10 +43,7 @@ export type GenerateImageResult = {
   contentType: 'image/png';
 };
 
-type LeafTheme = {
-  className: string;
-  label: string;
-};
+/* ─── ユーティリティ ─── */
 
 function formatInteger(n: number): string {
   return Math.round(n).toLocaleString('ja-JP');
@@ -61,9 +69,15 @@ function normalizePieceSize(value: string | null | undefined): string {
     .replace(/^×|×$/g, '')
     .replace(/\s+/g, '');
   if (!dims) return '—';
-  // 既に mm/cm 等の単位が含まれていなければ mm を補う（参考リーフ表記に合わせる）
   return /[a-zA-Zｍｃ㎜㎝]/.test(dims) ? dims : `${dims}mm`;
 }
+
+/* ─── テーマ選択 ─── */
+
+export type LeafTheme = {
+  className: string;
+  label: string;
+};
 
 function textForTheme(data: LeafletImageData): string {
   return cleanText(`${data.leafName} ${data.note ?? ''}`);
@@ -72,30 +86,26 @@ function textForTheme(data: LeafletImageData): string {
 export function selectLeafTheme(data: LeafletImageData): LeafTheme {
   const text = textForTheme(data);
 
-  // 和菓子系（羊羹・あんこ・米菓・和スイーツ）
   if (/羊羹|ようかん|和菓子|抹茶|きなこ|あんこ|餡|最中|もなか|まんじゅう|饅頭|どら焼|団子|大福|あられ|おかき|かりんとう|せんべい|煎餅|わらび|金澤|金沢/.test(text)) {
     return { className: 'theme-wagashi', label: '和菓子' };
   }
-  // スナック系（ポップコーン・揚げ菓子・豆菓子）
   if (/ポップコーン|スナック|ポテト|チップ|コーン|スティック|ナッツ|豆菓子|揚げ|しお味|塩味|うす塩|コンソメ/.test(text)) {
     return { className: 'theme-snack', label: 'スナック' };
   }
-  // 洋菓子・焼き菓子・チョコ系
   if (/チョコ|ショコラ|キャラメル|クッキー|ビスケット|ケーキ|バウム|フィナンシェ|マドレーヌ|パイ|タルト|ドーナツ|カステラ|ワッフル|ラスク|キャンディ|キャンデー|飴|グミ|マシュマロ/.test(text)) {
     return { className: 'theme-sweets', label: 'スイーツ' };
   }
-  // 涼感・乳系・さっぱり系
-  if (/レモン|ヨーグルト|ムース|プリン|涼|冷|ソーダ|サイダー|ラムネ|ミント|乳酸|シャーベット|アイス/.test(text)) {
+  if (/レモン|ヨーグルト|ムース|プリン|涼|冷|ソーダ|サイダー|ラムネ|ミント|乳酸|シャーベット|アイス|カルピス/.test(text)) {
     return { className: 'theme-cool', label: 'さっぱり' };
   }
-  // フルーツ・ゼリー系
   if (/マンゴー|ゼリー|果|フルーツ|桃|みかん|オレンジ|ぶどう|葡萄|巨峰|マスカット|いちご|苺|りんご|林檎|梨|メロン|パイン|キウイ|さくらんぼ|ベリー|柑橘|ピーチ/.test(text)) {
     return { className: 'theme-fruit', label: 'フルーツ' };
   }
   return { className: 'theme-standard', label: 'おすすめ' };
 }
 
-// 商品カテゴリ辞書（商品名 → 表示カテゴリ）
+/* ─── キャッチコピー（ルールベース） ─── */
+
 const COPY_CATEGORIES: Array<[RegExp, string]> = [
   [/ポップコーン/, 'ポップコーン'],
   [/水羊羹|水ようかん/, '水羊羹'],
@@ -112,21 +122,18 @@ const COPY_CATEGORIES: Array<[RegExp, string]> = [
   [/せんべい|煎餅/, 'せんべい'],
   [/チョコ|ショコラ/, 'チョコ'],
   [/グミ/, 'グミ'],
+  [/アイス|シャーベット/, 'アイス'],
 ];
 
-function detectCategory(name: string): string {
+export function detectCategory(name: string): string {
   for (const [re, label] of COPY_CATEGORIES) if (re.test(name)) return label;
   return '商品';
 }
 
-/** 商品名から品番・接尾辞・カテゴリ語を除いた「味・産地」フレーズを取り出す */
-function flavorOf(name: string): string {
+export function flavorOf(name: string): string {
   let s = cleanText(name);
-  // 先頭の品番（YL-6P / ICR-7P / JKR-10 など）を除去
   s = s.replace(/^[0-9A-Za-zＡ-Ｚ＿\-－]+[PpＰ]?(?=[ぁ-んァ-ヶ一-龠])/, '');
-  // 末尾の汎用語を除去
   s = s.replace(/(ギフト|ｷﾞﾌﾄ|詰合せ|詰め合わせ|セット)$/g, '');
-  // 末尾のカテゴリ語を除去（「塩レモンゼリー」→「塩レモン」）
   for (const [re] of COPY_CATEGORIES) {
     s = s.replace(new RegExp(`(?:${re.source})$`), '');
   }
@@ -136,7 +143,6 @@ function flavorOf(name: string): string {
 function buildMainCopy(data: LeafletImageData): string {
   const name = cleanText(data.leafName);
   if (data.itemCount >= 2) {
-    // アソート: 構成商品の共通カテゴリ（無ければ「味」）で訴求
     const parts = name.split('・').map((n) => detectCategory(n));
     const uniq = Array.from(new Set(parts));
     const cat = uniq.length === 1 && uniq[0] !== '商品' ? uniq[0] : '味';
@@ -149,45 +155,44 @@ function buildMainCopy(data: LeafletImageData): string {
   return `${name}です！`;
 }
 
-function buildSalesCopy(data: LeafletImageData): string {
-  const note = cleanText(data.note);
-  if (note) return note;
-  const name = cleanText(data.leafName);
-  if (data.itemCount >= 2) {
-    // アソート: 構成商品の味を列挙
-    const flavors = name
-      .split('・')
-      .map((n) => flavorOf(n) || cleanText(n))
-      .filter(Boolean);
-    const listed = flavors.slice(0, 4).join('・');
-    return `${listed}${flavors.length > 4 ? ' ほか' : ''}の\n${data.itemCount}種アソートです。\n景品として案内しやすい企画です。`;
+/* ─── 商品画像 HTML 生成 ─── */
+
+/**
+ * 画像ソースを img タグに変換
+ */
+function imgTag(src: string): string {
+  return `<img src="${escapeHtml(src)}" alt="商品画像" loading="eager" />`;
+}
+
+/**
+ * 商品点数に応じた product-area クラスと img タグ群を生成
+ */
+export function buildProductImagesHtml(productImages: string[]): {
+  areaClass: string;
+  imagesHtml: string;
+} {
+  const images = productImages.filter(Boolean);
+
+  if (images.length === 0) {
+    return {
+      areaClass: 'single',
+      imagesHtml: '<div class="img-placeholder">商品画像未設定</div>',
+    };
   }
-  const cat = detectCategory(name);
-  const fl = flavorOf(name);
-  const lead = fl ? `${fl}の${cat}。\n` : '';
-  const theme = selectLeafTheme(data).className;
-  if (theme === 'theme-wagashi') return `${lead}落ち着いた雰囲気で\n幅広い層に案内しやすい\n和菓子景品です。`;
-  if (theme === 'theme-snack') return `${lead}見映えしやすく\n手に取りやすい\n景品向け商品です。`;
-  if (theme === 'theme-sweets') return `${lead}甘いもの好きに\n案内しやすい商品です。`;
-  if (theme === 'theme-cool') return `${lead}爽やかな印象で\n季節提案にも使いやすい\n商品です。`;
-  if (theme === 'theme-fruit') return `${lead}フルーツ感が分かりやすく\n景品として案内しやすい\n商品です。`;
-  return `${lead}景品向けに案内しやすい\nおすすめの商品です。`;
+  if (images.length === 1) {
+    return { areaClass: 'single', imagesHtml: imgTag(images[0]) };
+  }
+  if (images.length === 2) {
+    return { areaClass: 'assort-2', imagesHtml: images.map(imgTag).join('') };
+  }
+  if (images.length === 3) {
+    return { areaClass: 'assort-3', imagesHtml: images.slice(0, 3).map(imgTag).join('') };
+  }
+  // 4種以上は最大4枚を2×2グリッド
+  return { areaClass: 'assort-4', imagesHtml: images.slice(0, 4).map(imgTag).join('') };
 }
 
-function imageTag(src: string | undefined, className: string): string {
-  if (!src) return '<div class="image-placeholder">商品画像未設定</div>';
-  return `<img class="${className}" src="${escapeHtml(src)}" alt="商品画像" />`;
-}
-
-function buildHeroImageHtml(data: LeafletImageData): string {
-  const images = data.productImages.filter(Boolean);
-  if (images.length <= 1) return imageTag(images[0], 'hero-image');
-
-  const visibleImages = images.slice(0, 4);
-  return `<div class="assort-grid">${visibleImages
-    .map((src) => imageTag(src, ''))
-    .join('')}</div>`;
-}
+/* ─── HTML 組み立て ─── */
 
 export function buildLeafImageHtml(
   data: LeafletImageData,
@@ -197,23 +202,28 @@ export function buildLeafImageHtml(
   const isDraft = data.status === 'draft';
   const productCode = cleanText(data.productCode) || '商品コード未設定';
   const pjNo = cleanText(data.pjNo) || '未設定';
-  const mainCopy = buildMainCopy(data);
-  const salesCopy = buildSalesCopy(data);
-  const firstImage = data.productImages.find(Boolean);
+
+  // AI生成コピーを優先、なければルールベース
+  const mainCopy = data.catchphrase?.main_copy ?? buildMainCopy(data);
+
   const theme = selectLeafTheme(data);
+
+  // AI生成背景を inline style で注入（CSSストライプを上書き）
+  const aiBgStyle = data.aiBgDataUrl
+    ? `background-image:url('${data.aiBgDataUrl}');background-size:cover;background-position:center;opacity:0.92;`
+    : '';
+
+  const { areaClass, imagesHtml } = buildProductImagesHtml(data.productImages);
 
   return templateHtml
     .replaceAll('{{FONT_URL}}', fontUrl)
     .replaceAll('{{THEME_CLASS}}', theme.className)
-    .replaceAll('{{THEME_LABEL}}', escapeHtml(theme.label))
+    .replaceAll('{{AI_BG_STYLE}}', aiBgStyle)
     .replaceAll('{{MAIN_COPY}}', escapeHtml(mainCopy))
-    .replaceAll('{{SALES_COPY}}', escapeHtml(salesCopy))
-    .replaceAll('{{ASSORT_CLASS}}', data.productImages.length > 1 ? 'assort' : '')
-    .replaceAll('{{HERO_IMAGE_HTML}}', buildHeroImageHtml(data))
-    .replaceAll('{{SUB_IMAGE_HTML}}', imageTag(firstImage, ''))
+    .replaceAll('{{PRODUCT_AREA_CLASS}}', areaClass)
+    .replaceAll('{{PRODUCT_IMAGES_HTML}}', imagesHtml)  // エスケープ不要（img タグを含むため）
     .replaceAll('{{DRAFT_CLASS}}', isDraft ? '' : 'hidden')
-    .replaceAll('{{STATUS_LABEL}}', isDraft ? '仮リーフ' : '正式リーフ')
-    .replaceAll('{{STATUS_NOTE}}', isDraft ? 'コード入力前' : '確認済み')
+    .replaceAll('{{STATUS_LABEL}}', isDraft ? '仮リーフ' : '確認済み')
     .replaceAll('{{PRODUCT_CODE}}', escapeHtml(productCode))
     .replaceAll('{{LEAF_NAME}}', escapeHtml(cleanText(data.leafName) || '商品名未設定'))
     .replaceAll('{{ITEM_COUNT}}', formatInteger(data.itemCount))
@@ -224,8 +234,11 @@ export function buildLeafImageHtml(
     .replaceAll('{{SHELF_LIFE_DAYS}}', formatInteger(data.shelfLifeDays))
     .replaceAll('{{LEAD_TIME}}', escapeHtml(cleanText(data.leadTime) || '受注後約1週間'))
     .replaceAll('{{HALF_LABEL}}', data.isHalfOk ? '可' : '不可')
+    .replaceAll('{{HALF_NG_CLASS}}', data.isHalfOk ? '' : 'ng')
     .replaceAll('{{PJ_NO}}', escapeHtml(pjNo));
 }
+
+/* ─── 画像生成エントリ ─── */
 
 export async function generateLeafImage(
   data: LeafletImageData,
@@ -273,13 +286,22 @@ export async function generateLeafImageLocal(
 
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 1540, height: 970, deviceScaleFactor: 1 });
-    await page.setContent(html, { waitUntil: 'load', timeout: 20_000 });
+    await page.setViewport({ width: 1540, height: 970, deviceScaleFactor: 2 });
+    await page.setContent(html, { waitUntil: 'load', timeout: 30_000 });
     await page.evaluateHandle('document.fonts.ready');
-    const screenshot = await page.screenshot({
-      type: 'png',
-      fullPage: false,
-    });
+    await page.evaluate(() =>
+      Promise.all(
+        [...document.querySelectorAll('img')].map((img) =>
+          (img as HTMLImageElement).complete
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                img.addEventListener('load', () => resolve());
+                img.addEventListener('error', () => resolve());
+              }),
+        ),
+      ),
+    );
+    const screenshot = await page.screenshot({ type: 'png', fullPage: false });
     return { buffer: Buffer.from(screenshot), contentType: 'image/png' };
   } finally {
     await browser.close();

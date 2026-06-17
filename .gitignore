@@ -48,3 +48,14 @@ leaf_theme_preview.html
 # 実顧客見積データ（コミット対象外）
 tests/fixtures/real/*.xlsx
 tests/fixtures/real/*.csv
+
+# Temporary media and docs
+*.xlsx
+*.jpg
+public/ai-composite-leaf-samples/
+public/ai-leaf-samples/
+public/original-leaf-samples/
+public/original-products-cropped/
+public/original-products/
+リーフレット/
+
