@@ -6,6 +6,7 @@
  */
 import * as XLSX from 'xlsx';
 import { parseIrisu } from '../parse/irisu';
+import { parseLooseNumber } from './number';
 import { parseMinLot } from '../parse/minlot';
 import { parseSpec } from '../parse/spec';
 import { parseSalesPeriod, parseShelfLife } from '../parse/sales-period';
@@ -80,10 +81,7 @@ function cellStr(ws: XLSX.WorkSheet, addr: string): string | null {
 function cellNum(ws: XLSX.WorkSheet, addr: string): number | null {
   const cell = ws[addr];
   if (!cell) return null;
-  const v = cell.v;
-  if (typeof v === 'number') return v;
-  const parsed = parseFloat(String(v).replace(/,/g, ''));
-  return isNaN(parsed) ? null : parsed;
+  return parseLooseNumber(cell.v);
 }
 
 // 全角英数字・記号を半角へ正規化（ＪＡＮ→JAN, ＮＯ．→NO. 等）。

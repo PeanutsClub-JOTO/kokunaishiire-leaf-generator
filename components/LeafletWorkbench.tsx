@@ -1,6 +1,7 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { sizeAssortV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
 
 // ─── 型 ───────────────────────────────────────────────────────────────────────
 export type WorkbenchItem = {
@@ -40,35 +41,26 @@ type Props = {
   quotationId: string;
   leaflets: WorkbenchLeaflet[];
   templateHtml: string;
+  settings: SizingV2Settings;
 };
 
-const SETTINGS = { unitPriceCap: 1000, costCap: 33000, halfBase: 16500 };
+const DEFAULT_SETTINGS: SizingV2Settings = { profitCoef: 1.25, salesAdd: 3000, unitPriceCap: 1000, costCap: 33000, halfBase: 16500 };
 
-// ─── クライアント側サイジング（lib/calc/sizing-v2 と同ロジック） ───────────────
-function gcd(a: number, b: number): number { return b === 0 ? a : gcd(b, a % b); }
-function lcm(a: number, b: number): number { return a <= 0 || b <= 0 ? Math.max(a, b, 1) : (a / gcd(a, b)) * b; }
-function ceil100(n: number): number { return Math.ceil(n / 100) * 100; }
+type Sizing = { ok: boolean; reason?: string; setCost: number; unitPrice: number; leafQty: number; costTotal: number; wholesale: number; isHalfOk: boolean };
 
-type Sizing = { ok: boolean; reason?: string; setCost: number; unitPrice: number; leafQty: number; costTotal: number; isHalfOk: boolean };
-
-function calcSizing(items: WorkbenchItem[]): Sizing {
+function calcSizing(items: WorkbenchItem[], settings: SizingV2Settings): Sizing {
   const types = items.map((i) => ({ cost: i.cost, minLotQty: i.minLotQty, ratio: i.ratio }));
-  const setCost = types.reduce((a, t) => a + t.cost * t.ratio, 0);
-  const setBoxes = types.reduce((a, t) => a + t.ratio, 0);
-  const itemCount = types.length;
-  const baseFail = (reason: string): Sizing => ({ ok: false, reason, setCost, unitPrice: itemCount ? setCost / itemCount : 0, leafQty: 0, costTotal: 0, isHalfOk: false });
-  if (setCost <= 0 || setBoxes <= 0) return baseFail('no_cost');
-  if (setCost > SETTINGS.unitPriceCap) return baseFail('unit_over');
-  let step = 1;
-  for (const t of types) step = lcm(step, Math.max(t.ratio > 0 ? Math.ceil(t.minLotQty / t.ratio) : t.minLotQty, 1));
-  const lotPrice = setCost * step;
-  if (lotPrice > SETTINGS.costCap) return baseFail('cost_over');
-  const maxSets = Math.floor(SETTINGS.costCap / setCost);
-  const sets = Math.floor(maxSets / step) * step;
-  if (sets < step) return baseFail('cost_over');
-  const unitPrice = setCost / itemCount;
-  const leafQty = sets * itemCount;
-  return { ok: true, setCost, unitPrice, leafQty, costTotal: ceil100(unitPrice * leafQty), isHalfOk: lotPrice <= SETTINGS.halfBase };
+  const result = sizeAssortV2(types, settings);
+  return {
+    ok: result.ok,
+    reason: result.reason,
+    setCost: result.setCost,
+    unitPrice: result.unitPrice,
+    leafQty: result.leafQty,
+    costTotal: result.costTotal,
+    wholesale: result.wholesale,
+    isHalfOk: result.isHalfOk,
+  };
 }
 
 // ─── キャッチコピー生成（lib/leaf/generate-image と同ロジック簡易版） ──────────
@@ -119,6 +111,16 @@ function sizeMm(d: string | null): string {
   const s = String(d).replace(/[WＷ]/g, '').replace(/[DＤHＨ]/g, '×').replace(/×+/g, '×').replace(/^×|×$/g, '');
   return /[a-zA-Z]/.test(s) ? s : `${s}mm`;
 }
+function productImagesHtml(imgs: string[]): { areaClass: string; imagesHtml: string } {
+  if (imgs.length === 0) {
+    return { areaClass: 'single', imagesHtml: '<div class="img-placeholder">商品画像未設定</div>' };
+  }
+  const tags = imgs.slice(0, 4).map((s) => `<img src="${esc(s)}" alt="" loading="eager" />`).join('');
+  if (imgs.length === 1) return { areaClass: 'single', imagesHtml: tags };
+  if (imgs.length === 2) return { areaClass: 'assort-2', imagesHtml: tags };
+  if (imgs.length === 3) return { areaClass: 'assort-3', imagesHtml: tags };
+  return { areaClass: 'assort-4', imagesHtml: tags };
+}
 
 // テンプレートにデータを差し込んで HTML を生成
 function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], sizing: Sizing): string {
@@ -126,6 +128,7 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
   const theme = selectTheme(leafName);
   const imgs = items.map((i) => i.imageUrl).filter(Boolean) as string[];
   const isAssort = items.length > 1;
+  const { areaClass, imagesHtml } = productImagesHtml(imgs);
   const hero = isAssort
     ? `<div class="assort-grid">${imgs.slice(0, 4).map((s) => `<img src="${esc(s)}" alt="" />`).join('')}</div>`
     : imgs[0] ? `<img class="hero-image" src="${esc(imgs[0])}" alt="" />` : '<div class="image-placeholder">商品画像未設定</div>';
@@ -140,6 +143,8 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
     .replaceAll('{{ASSORT_CLASS}}', isAssort ? 'assort' : '')
     .replaceAll('{{HERO_IMAGE_HTML}}', hero)
     .replaceAll('{{SUB_IMAGE_HTML}}', imgs[0] ? `<img src="${esc(imgs[0])}" alt="" />` : '')
+    .replaceAll('{{PRODUCT_AREA_CLASS}}', areaClass)
+    .replaceAll('{{PRODUCT_IMAGES_HTML}}', imagesHtml)
     .replaceAll('{{DRAFT_CLASS}}', '')
     .replaceAll('{{STATUS_LABEL}}', '')
     .replaceAll('{{STATUS_NOTE}}', '')
@@ -147,18 +152,20 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
     .replaceAll('{{LEAF_NAME}}', esc(leaf.leafName || leafName))
     .replaceAll('{{ITEM_COUNT}}', fmt(items.length))
     .replaceAll('{{LEAF_QTY}}', fmt(sizing.leafQty))
-    .replaceAll('{{WHOLESALE_PRICE}}', fmt(sizing.costTotal))
+    .replaceAll('{{WHOLESALE_PRICE}}', fmt(sizing.wholesale))
     .replaceAll('{{UNIT_PRICE}}', fmt(sizing.unitPrice))
     .replaceAll('{{PIECE_SIZE}}', esc(sizeMm(pieceSize)))
     .replaceAll('{{SHELF_LIFE_DAYS}}', leaf.shelfLifeDays != null ? fmt(leaf.shelfLifeDays) : '—')
     .replaceAll('{{LEAD_TIME}}', esc(leaf.leadTime || '受注後約1週間'))
     .replaceAll('{{HALF_LABEL}}', sizing.isHalfOk ? '可' : '不可')
+    .replaceAll('{{HALF_NG_CLASS}}', sizing.isHalfOk ? '' : 'ng')
     .replaceAll('{{PJ_NO}}', '');
 }
 
 // ─── コンポーネント ────────────────────────────────────────────────────────────
-export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }: Props) {
+export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, settings }: Props) {
   void quotationId;
+  const sizingSettings = settings ?? DEFAULT_SETTINGS;
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(leaflets[0]?.id ?? '');
   const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string }>>(() =>
@@ -200,7 +207,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
     [sel, productById],
   );
   const isAssort = editedItems.length > 1;
-  const sizing = useMemo(() => calcSizing(editedItems), [editedItems]);
+  const sizing = useMemo(() => calcSizing(editedItems, sizingSettings), [editedItems, sizingSettings]);
   const leafForPreview = useMemo<WorkbenchLeaflet>(
     () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, isSingle: !isAssort }),
     [selected, edit, isAssort],
@@ -332,7 +339,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
           </div>
           {!sizing.ok && (
             <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
-              この構成は企画対象外です（{sizing.reason === 'unit_over' ? '単価合計が1,000円超' : sizing.reason === 'cost_over' ? '最小ロットが33,000円超' : sizing.reason}）。比率を調整してください。
+              この構成は企画対象外です（{sizing.reason === 'unit_over' ? '卸価格÷入数が1,000円超' : sizing.reason === 'cost_over' ? '1ロットが33,000円超' : sizing.reason}）。比率を調整してください。
             </div>
           )}
         </div>
@@ -377,7 +384,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
             <div className="space-y-1.5">
               {compatItems.map((it) => {
                 const checked = it.productId in sel;
-                const wouldExceed = !checked && (sizing.setCost + it.cost) > SETTINGS.unitPriceCap;
+                const wouldExceed = !checked && it.cost * sizingSettings.profitCoef >= sizingSettings.unitPriceCap;
                 return (
                   <label key={it.productId} className={`flex items-center gap-2 text-xs ${wouldExceed ? 'opacity-40' : 'cursor-pointer'}`}>
                     <input
@@ -392,7 +399,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
                 );
               })}
             </div>
-            <p className="mt-2 text-[10px] text-amber-600">単価合計が1,000円以内になる組み合わせのみ選べます</p>
+            <p className="mt-2 text-[10px] text-amber-600">掲載単価が1,000円以内に収まる構成だけ作成できます</p>
           </div>
         )}
 
@@ -423,9 +430,9 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml }
 
         {/* 計算結果（ライブ） */}
         <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3 text-sm space-y-1">
-          <Row label="単価" value={`${fmt(sizing.unitPrice)}円`} warn={sizing.unitPrice > SETTINGS.unitPriceCap} />
+          <Row label="単価" value={`${fmt(sizing.unitPrice)}円`} warn={sizing.unitPrice > sizingSettings.unitPriceCap} />
           <Row label="入数" value={`${fmt(sizing.leafQty)}個`} />
-          <Row label="卸価格" value={`${fmt(sizing.costTotal)}円`} />
+          <Row label="卸価格" value={`${fmt(sizing.wholesale)}円`} />
           <Row label="ハーフ" value={sizing.isHalfOk ? '可' : '不可'} />
         </div>
 

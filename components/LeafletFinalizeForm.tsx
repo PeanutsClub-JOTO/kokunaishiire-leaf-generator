@@ -30,22 +30,37 @@ export default function LeafletFinalizeForm({
   const [leafImageUrl, setLeafImageUrl] = useState<string | null>(initialLeafImageUrl);
   const [message, setMessage] = useState('');
 
+  async function saveLeaflet(finalize = false): Promise<boolean> {
+    const body: Record<string, string> = {
+      product_code: productCode,
+      pj_no: pjNo,
+      leaf_name: leafName,
+      lead_time: leadTime,
+    };
+    if (finalize) body.status = 'final';
+
+    const res = await fetch(`/api/leaflets/${leafletId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setMessage(data.error ?? '保存エラー');
+      return false;
+    }
+    if (finalize) setStatus('final');
+    setMessage('保存しました');
+    return true;
+  }
+
   async function handleSave(finalize = false) {
     setSaving(true);
     setMessage('');
     try {
-      const body: Record<string, string> = { product_code: productCode, pj_no: pjNo, leaf_name: leafName, lead_time: leadTime };
-      if (finalize) body.status = 'final';
-
-      const res = await fetch(`/api/leaflets/${leafletId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) { setMessage(data.error ?? '保存エラー'); return; }
-      if (finalize) setStatus('final');
-      setMessage('保存しました');
+      await saveLeaflet(finalize);
+    } catch (err) {
+      setMessage(err instanceof Error ? `保存エラー: ${err.message}` : '保存エラー');
     } finally {
       setSaving(false);
     }
@@ -56,13 +71,16 @@ export default function LeafletFinalizeForm({
     setMessage('PDF生成中...');
     try {
       // まず保存
-      await handleSave(false);
+      const saved = await saveLeaflet(false);
+      if (!saved) return;
 
       const res = await fetch(`/api/leaflets/${leafletId}/pdf`, { method: 'POST' });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { setMessage(data.error ?? 'PDF生成エラー'); return; }
       setPdfUrl(data.pdf_url);
       setMessage('PDF生成完了');
+    } catch (err) {
+      setMessage(err instanceof Error ? `PDF生成エラー: ${err.message}` : 'PDF生成エラー');
     } finally {
       setSaving(false);
     }
@@ -72,19 +90,30 @@ export default function LeafletFinalizeForm({
     setSaving(true);
     setMessage('リーフ画像生成ジョブを登録中...');
     try {
-      await handleSave(false);
+      const saved = await saveLeaflet(false);
+      if (!saved) return;
 
       const res = await fetch(`/api/leaflets/${leafletId}/image`, { method: 'POST' });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { setMessage(data.error ?? 'リーフ画像生成ジョブ登録エラー'); return; }
 
       setMessage('リーフ画像生成中...');
       const jobId = data.job_id as string;
+      let failureCount = 0;
       for (let i = 0; i < 45; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 2000));
         const jobRes = await fetch(`/api/jobs/${jobId}`);
-        const jobData = await jobRes.json();
-        if (!jobRes.ok) { setMessage(jobData.error ?? 'ジョブ確認エラー'); return; }
+        const jobData = await jobRes.json().catch(() => ({}));
+        if (!jobRes.ok || !jobData.job) {
+          failureCount++;
+          if (failureCount >= 3) {
+            setMessage(jobData.error ?? 'ジョブ確認エラー');
+            return;
+          }
+          setMessage('ジョブ状態を再確認中...');
+          continue;
+        }
+        failureCount = 0;
         if (jobData.job.status === 'error') {
           setMessage(jobData.job.error_message ?? 'リーフ画像生成エラー');
           return;
@@ -100,6 +129,8 @@ export default function LeafletFinalizeForm({
         }
       }
       setMessage('リーフ画像生成を受け付けました。少し後に画面を更新してください');
+    } catch (err) {
+      setMessage(err instanceof Error ? `リーフ画像生成エラー: ${err.message}` : 'リーフ画像生成エラー');
     } finally {
       setSaving(false);
     }

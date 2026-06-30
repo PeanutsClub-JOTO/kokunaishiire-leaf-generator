@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { escapeHtml } from './generate-pdf';
+import { timeoutMsFromEnv, withTimeout } from '../async/timeout';
 
 export type LeafletImageData = {
   id: string;
@@ -161,7 +162,7 @@ function buildMainCopy(data: LeafletImageData): string {
  * 画像ソースを img タグに変換
  */
 function imgTag(src: string): string {
-  return `<img src="${escapeHtml(src)}" alt="商品画像" loading="eager" />`;
+  return `<div class="img-slot"><img src="${escapeHtml(src)}" alt="商品画像" loading="eager" /></div>`;
 }
 
 /**
@@ -214,12 +215,15 @@ export function buildLeafImageHtml(
     : '';
 
   const { areaClass, imagesHtml } = buildProductImagesHtml(data.productImages);
+  const salesCopy = cleanText(data.note);
 
   return templateHtml
     .replaceAll('{{FONT_URL}}', fontUrl)
     .replaceAll('{{THEME_CLASS}}', theme.className)
+    .replaceAll('{{THEME_LABEL}}', escapeHtml(theme.label))
     .replaceAll('{{AI_BG_STYLE}}', aiBgStyle)
     .replaceAll('{{MAIN_COPY}}', escapeHtml(mainCopy))
+    .replaceAll('{{SALES_COPY}}', escapeHtml(salesCopy))
     .replaceAll('{{PRODUCT_AREA_CLASS}}', areaClass)
     .replaceAll('{{PRODUCT_IMAGES_HTML}}', imagesHtml)  // エスケープ不要（img タグを含むため）
     .replaceAll('{{DRAFT_CLASS}}', isDraft ? '' : 'hidden')
@@ -289,17 +293,21 @@ export async function generateLeafImageLocal(
     await page.setViewport({ width: 1540, height: 970, deviceScaleFactor: 2 });
     await page.setContent(html, { waitUntil: 'load', timeout: 30_000 });
     await page.evaluateHandle('document.fonts.ready');
-    await page.evaluate(() =>
-      Promise.all(
-        [...document.querySelectorAll('img')].map((img) =>
-          (img as HTMLImageElement).complete
-            ? Promise.resolve()
-            : new Promise<void>((resolve) => {
-                img.addEventListener('load', () => resolve());
-                img.addEventListener('error', () => resolve());
-              }),
+    await withTimeout(
+      page.evaluate(() =>
+        Promise.all(
+          [...document.querySelectorAll('img')].map((img) =>
+            (img as HTMLImageElement).complete
+              ? Promise.resolve()
+              : new Promise<void>((resolve) => {
+                  img.addEventListener('load', () => resolve());
+                  img.addEventListener('error', () => resolve());
+                }),
+          ),
         ),
       ),
+      timeoutMsFromEnv('RENDER_IMAGE_LOAD_TIMEOUT_MS', 12_000),
+      'Leaflet image asset loading',
     );
     const screenshot = await page.screenshot({ type: 'png', fullPage: false });
     return { buffer: Buffer.from(screenshot), contentType: 'image/png' };

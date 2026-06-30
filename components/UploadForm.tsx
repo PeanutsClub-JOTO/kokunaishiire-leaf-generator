@@ -3,6 +3,13 @@ import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
 type JobStatus = 'idle' | 'uploading' | 'queued' | 'running' | 'done' | 'error';
+type JobResponse = {
+  job?: {
+    status: Exclude<JobStatus, 'idle' | 'uploading'>;
+    error_message?: string | null;
+  };
+  error?: string;
+};
 
 export default function UploadForm() {
   const [status, setStatus] = useState<JobStatus>('idle');
@@ -14,10 +21,35 @@ export default function UploadForm() {
 
   async function pollJob(jobId: string, qId: string) {
     const maxAttempts = 60;
+    let failureCount = 0;
+
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise((r) => setTimeout(r, 3000));
-      const res = await fetch(`/api/jobs/${jobId}`);
-      const { job } = await res.json();
+
+      let job: JobResponse['job'];
+      try {
+        const res = await fetch(`/api/jobs/${jobId}`);
+        const data = (await res.json().catch(() => ({}))) as JobResponse;
+        if (!res.ok || !data.job) {
+          throw new Error(data.error ?? 'ジョブ状態を取得できませんでした');
+        }
+        job = data.job;
+        failureCount = 0;
+      } catch (err) {
+        failureCount++;
+        if (failureCount >= 3) {
+          setStatus('error');
+          setMessage(
+            err instanceof Error
+              ? `状態確認エラー: ${err.message}`
+              : '状態確認エラーが発生しました',
+          );
+          return;
+        }
+        setMessage('状態確認を再試行中...');
+        continue;
+      }
+
       if (job.status === 'done') {
         setStatus('done');
         setMessage('取込完了！リーフ編集画面へ移動します...');
@@ -46,15 +78,20 @@ export default function UploadForm() {
     const form = new FormData();
     form.append('file', file);
 
-    const res = await fetch('/api/quotations', { method: 'POST', body: form });
-    const data = await res.json();
+    try {
+      const res = await fetch('/api/quotations', { method: 'POST', body: form });
+      const data = await res.json();
 
-    if (!res.ok) { setStatus('error'); setMessage(data.error ?? 'エラー'); return; }
+      if (!res.ok) { setStatus('error'); setMessage(data.error ?? 'エラー'); return; }
 
-    setQuotationId(data.quotation_id);
-    setStatus('queued');
-    setMessage('取込キューに登録しました。処理中...');
-    pollJob(data.job_id, data.quotation_id);
+      setQuotationId(data.quotation_id);
+      setStatus('queued');
+      setMessage('取込キューに登録しました。処理中...');
+      void pollJob(data.job_id, data.quotation_id);
+    } catch (err) {
+      setStatus('error');
+      setMessage(err instanceof Error ? `アップロードエラー: ${err.message}` : 'アップロードエラー');
+    }
   }
 
   async function submitGSheet(e: React.FormEvent) {
@@ -65,19 +102,24 @@ export default function UploadForm() {
     setStatus('uploading');
     setMessage('リクエスト送信中...');
 
-    const res = await fetch('/api/quotations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source_ref: url }),
-    });
-    const data = await res.json();
+    try {
+      const res = await fetch('/api/quotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_ref: url }),
+      });
+      const data = await res.json();
 
-    if (!res.ok) { setStatus('error'); setMessage(data.error ?? 'エラー'); return; }
+      if (!res.ok) { setStatus('error'); setMessage(data.error ?? 'エラー'); return; }
 
-    setQuotationId(data.quotation_id);
-    setStatus('queued');
-    setMessage('取込キューに登録しました。処理中...');
-    pollJob(data.job_id, data.quotation_id);
+      setQuotationId(data.quotation_id);
+      setStatus('queued');
+      setMessage('取込キューに登録しました。処理中...');
+      void pollJob(data.job_id, data.quotation_id);
+    } catch (err) {
+      setStatus('error');
+      setMessage(err instanceof Error ? `取込リクエストエラー: ${err.message}` : '取込リクエストエラー');
+    }
   }
 
   const busy = ['uploading', 'queued', 'running'].includes(status);

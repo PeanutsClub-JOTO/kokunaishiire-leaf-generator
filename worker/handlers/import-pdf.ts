@@ -16,6 +16,7 @@ import {
   type RawProductRow,
   type RawSheetData,
 } from '../../lib/import/xlsx-cells';
+import { parseLooseNumber } from '../../lib/import/number';
 import { loadSettings, processRawSheets } from './import-xlsx';
 
 type Supabase = SupabaseClient<Database>;
@@ -54,8 +55,7 @@ function tablesToRawRows(tables: string[][][]): RawProductRow[] {
       idx >= 0 ? (row[idx]?.trim() || null) : null;
     const num = (row: string[], idx: number): number | null => {
       if (idx < 0) return null;
-      const parsed = parseFloat((row[idx] ?? '').replace(/,/g, ''));
-      return isNaN(parsed) ? null : parsed;
+      return parseLooseNumber(row[idx] ?? null);
     };
 
     for (let r = 1; r < table.length; r++) {

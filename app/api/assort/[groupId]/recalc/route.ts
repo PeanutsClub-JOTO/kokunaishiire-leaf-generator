@@ -17,23 +17,30 @@ export async function POST(
     ratios: { product_id: string; ratio: number }[];
   };
 
+  if (!ratios || ratios.length === 0) {
+    return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
+  }
+
   // app_settings から定数を取得
-  const { data: settings } = await supabase
+  const { data: settingsData } = await supabase
     .from('app_settings')
     .select('key, value');
 
   const s: SizingV2Settings = {
+    profitCoef: 1.25,
+    salesAdd: 3000,
     unitPriceCap: 1000,
     costCap: 33000,
     halfBase: 16500,
   };
-
-  if (settings) {
-    for (const row of settings) {
+  if (settingsData) {
+    for (const row of settingsData) {
       switch (row.key) {
+        case 'profit_coef':    s.profitCoef = row.value; break;
+        case 'sales_add':      s.salesAdd = row.value; break;
         case 'unit_price_cap': s.unitPriceCap = row.value; break;
-        case 'cost_cap':       s.costCap      = row.value; break;
-        case 'half_base':      s.halfBase     = row.value; break;
+        case 'cost_cap':       s.costCap = row.value; break;
+        case 'half_base':      s.halfBase = row.value; break;
       }
     }
   }
@@ -52,7 +59,8 @@ export async function POST(
   const ratioMap = new Map(ratios.map((r) => [r.product_id, r.ratio]));
 
   const types: AssortTypeV2[] = items.map((item) => {
-    const product = item.products as { cost: number; min_lot_qty: number } | null;
+    // Supabase types can be arrays or objects
+    const product = Array.isArray(item.products) ? item.products[0] : item.products;
     return {
       cost: product?.cost ?? 0,
       minLotQty: product?.min_lot_qty ?? 1,
@@ -78,8 +86,23 @@ export async function POST(
       .update({
         leaf_qty: result.leafQty,
         cost_total: result.costTotal,
-        wholesale_price: result.costTotal,  // 卸価格 = 仕入原価合計
-        unit_price: result.unitPrice,       // 単価 = 加重平均原価
+        wholesale_price: result.wholesale,
+        unit_price: result.unitPrice,
+        is_half_ok: result.isHalfOk,
+        item_count: result.itemCount,
+      })
+      .eq('group_id', groupId)
+      .eq('status', 'draft');
+  } else {
+    // If not ok, we could optionally store the failure reason or mark it somehow,
+    // but typically we just return it to UI so user can fix it.
+    await supabase
+      .from('leaflets')
+      .update({
+        leaf_qty: result.leafQty,
+        cost_total: result.costTotal,
+        wholesale_price: result.wholesale,
+        unit_price: result.unitPrice,
         is_half_ok: result.isHalfOk,
         item_count: result.itemCount,
       })
@@ -87,6 +110,5 @@ export async function POST(
       .eq('status', 'draft');
   }
 
-  // フロントエンド互換: wholesale = 仕入原価合計（卸価格）として返す
-  return NextResponse.json({ result: { ...result, wholesale: result.costTotal } });
+  return NextResponse.json({ result });
 }

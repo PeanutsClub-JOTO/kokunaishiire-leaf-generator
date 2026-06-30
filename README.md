@@ -108,6 +108,23 @@ npm run build
 
 このプロジェクトでは Next.js 16 を使用しています。`npm run build` は環境差でTurbopackが落ちやすかったため、`next build --webpack` にしています。
 
+## デプロイ前チェック
+
+```bash
+npm ci
+npm test
+npm run build
+```
+
+Vercel へデプロイする場合は `vercel.json` の設定で Next.js としてビルドされます。リーフ画像の本番生成は API 内で直接Puppeteerを動かさず、ジョブ登録後にワーカーで処理する構成です。
+
+モック画面:
+
+```text
+/mock
+/mock?sample=1
+```
+
 ## 環境変数
 
 主な環境変数:

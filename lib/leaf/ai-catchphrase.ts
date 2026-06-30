@@ -3,6 +3,7 @@
  *
  * GEMINI_API_KEY が未設定の場合は null を返す → 呼び出し元がルールベースにフォールバック。
  */
+import { fetchWithTimeout, timeoutMsFromEnv } from '../async/timeout';
 
 export type Catchphrase = {
   main_copy: string;
@@ -54,11 +55,11 @@ export async function generateCatchphrase(data: {
 - 味・種類・食べやすさ・見た目の分かりやすさを訴求する
 - 右上に大きく配置しても読みやすい短さにする
 
-出力はJSONのみ（コードブロック不要）:
+  出力はJSONのみ（コードブロック不要）:
 {"main_copy":"キャッチコピー","sub_copy":"補足コピー"}`;
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
@@ -68,6 +69,8 @@ export async function generateCatchphrase(data: {
           generationConfig: { temperature: 0.7, maxOutputTokens: 256 },
         }),
       },
+      timeoutMsFromEnv('AI_CATCHPHRASE_TIMEOUT_MS', 15_000),
+      'Gemini catchphrase generation',
     );
 
     if (!res.ok) return null;

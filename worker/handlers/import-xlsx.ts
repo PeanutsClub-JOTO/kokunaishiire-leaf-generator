@@ -10,6 +10,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../lib/supabase/types';
 import { extractXlsxCells, type RawSheetData } from '../../lib/import/xlsx-cells';
 import { extractXlsxImages } from '../../lib/import/xlsx-images';
+import { upscaleImageBuffer } from '../../lib/leaf/upscale-image';
 import { groupProducts, type ProductForGrouping } from '../../lib/assort/grouping';
 import { type Settings, DEFAULT_SETTINGS } from '../../lib/calc/engine';
 import {
@@ -173,7 +174,7 @@ export async function processRawSheets(
     }));
 
     // 取込時は全商品を「単品」として構成する（アソートはワークベンチで後付け）。
-    // ただし互換キー（メーカー|規格|入数|上代）は group_key として保持し、
+    // ただし互換キー（メーカー|規格|入数|上代|単価|最小ロット数）は group_key として保持し、
     // ワークベンチ側で「同じキー＝アソート可能な仲間」を見つけられるようにする。
     const rawGroups = groupProducts(forGrouping, 0);
     const groups = rawGroups.flatMap((g) =>
@@ -203,6 +204,8 @@ export async function processRawSheets(
 
       // サイジング計算（新方式: 単価=原価, 卸価格=原価合計, 1ロット=最小ロット数量）
       const v2Settings: SizingV2Settings = {
+        profitCoef: settings.profitCoef,
+        salesAdd: settings.salesAdd,
         unitPriceCap: settings.unitPriceCap,
         costCap: settings.costCap,
         halfBase: settings.halfBase,
@@ -251,8 +254,8 @@ export async function processRawSheets(
         item_count: itemCount,
         leaf_qty: sizing.leafQty,
         cost_total: sizing.costTotal,
-        wholesale_price: sizing.costTotal,  // 卸価格 = 仕入原価合計
-        unit_price: sizing.unitPrice,       // 単価 = 原価（加重平均原価）
+        wholesale_price: sizing.wholesale,
+        unit_price: sizing.unitPrice,
         is_half_ok: sizing.isHalfOk,
         shelf_life_days: shelfDays,
         status: 'draft',
@@ -352,11 +355,22 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
           keyToProductId.get(`|${img.no}`);
         if (!productId) continue;
 
-        const ext = img.mimeType.split('/')[1] ?? 'png';
+        let uploadBuffer = img.buffer;
+        let contentType = img.mimeType;
+        let ext = img.mimeType.split('/')[1] ?? 'png';
+
+        try {
+          uploadBuffer = await upscaleImageBuffer(img.buffer);
+          contentType = 'image/png';
+          ext = 'png';
+        } catch (upscaleErr) {
+          console.warn('[import-xlsx] Image upscale failed, uploading original:', upscaleErr);
+        }
+
         const imgPath = `products/${productId}/image.${ext}`;
         const { error: upErr } = await supabase.storage
           .from('product-images')
-          .upload(imgPath, img.buffer, { contentType: img.mimeType, upsert: true });
+          .upload(imgPath, uploadBuffer, { contentType, upsert: true });
         if (upErr) continue;
 
         const { data: urlData } = supabase.storage

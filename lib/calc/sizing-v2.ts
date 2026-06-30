@@ -3,24 +3,27 @@
  *
  * 【モデル】
  *  - 1商品 = 1規格パッケージ（例: 9個入り = 1個。中身個数は分解しない）。
- *  - プライズ（景品1個） = 1セット。
- *      単品  : 1セット = その商品1個。       単価 = 原価。
- *      アソート: 1セット = 各タイプ ratio_i 個ずつ。単価 = Σ(ratio_i × 原価_i)（＝合計）。
- *  - 単価（プライズ1個の原価）が unitPriceCap(1000) を超えたら企画対象外。
- *      アソートは「両商品を1つにする」ため原価を足し、1000円を超えるとアソート不可。
- *  - 数量: 仕入原価合計が costCap(33,000) を超えない範囲で最大のセット数。
- *      発注はケース（最小ロット）単位なので、セット数は最小ロットを満たす刻みに丸める。
- *  - 仕入原価合計は 100円単位で切り上げ。卸価格 = 仕入原価合計。
- *  - 単価 × 入数(セット数) = 卸価格 となる。
+ *  - 1商品パッケージ = 1個。規格の「9個入り」など中身個数は分解しない。
+ *  - 入数/最小ロット数量が「1ロット」の箱数になる。
+ *      例: 入数 12×4 = 48個で1ロット。
+ *      例: 最小ロット 5ケースなら caseQty×5 個で1ロット。
+ *  - 数量: 1ロット原価が costCap(33,000) を超えたら企画対象外。
+ *      超えない場合は、仕入原価合計が33,000円以内で最大のロット数を掲載する。
+ *  - 掲載卸売価格 = (仕入原価合計 + salesAdd) × profitCoef。
+ *  - 掲載単価 = 掲載卸売価格 ÷ 掲載入数。これが unitPriceCap 以下なら企画化。
  */
 
 export type SizingV2Settings = {
-  unitPriceCap: number; // 単価(プライズ原価)の上限（1000）
+  profitCoef: number;   // 卸価格係数（1.25）
+  salesAdd: number;     // 営業上乗せ額（3000）
+  unitPriceCap: number; // 掲載単価の上限（1000）
   costCap: number;      // 仕入原価合計の上限（33000）
   halfBase: number;     // ハーフ基準（16500）
 };
 
 export const DEFAULT_V2_SETTINGS: SizingV2Settings = {
+  profitCoef: 1.25,
+  salesAdd: 3000,
   unitPriceCap: 1000,
   costCap: 33000,
   halfBase: 16500,
@@ -31,29 +34,19 @@ export type SizingV2Result = {
   reason?: string;         // unit_over / cost_over / no_cost
 
   // ── 判定用（内部ロジック） ────────────────────────
-  setCost: number;         // 1セットの原価合計（アソート判定：≤1000 で成立）
-  sets: number;            // セット（プライズ）数
+  setCost: number;         // 比率1組あたりの原価合計（参考）
+  sets: number;            // 掲載ロット数
 
   // ── 掲載用（リーフに表示する値） ─────────────────
-  unitPrice: number;       // 掲載単価 = 1商品あたりの原価（setCost ÷ 種類数）
-  leafQty: number;         // 掲載入数 = 総箱数（sets × 種類数）
-  costTotal: number;       // 仕入原価合計 = 卸価格（unitPrice × leafQty の100円切り上げ）
+  unitPrice: number;       // 掲載単価 = wholesale ÷ leafQty
+  leafQty: number;         // 掲載入数 = 総箱数
+  costTotal: number;       // 仕入原価合計 = 原価 × 掲載入数
+  wholesale: number;       // 掲載卸売価格 = (costTotal + salesAdd) × profitCoef
 
   minLotPrice: number;     // 最小ロット原価（参考）
   maxLots: number;         // ロット数（参考）
   isHalfOk: boolean;       // ハーフ可否
 };
-
-function gcd(a: number, b: number): number {
-  return b === 0 ? a : gcd(b, a % b);
-}
-function lcm(a: number, b: number): number {
-  if (a <= 0 || b <= 0) return Math.max(a, b, 1);
-  return (a / gcd(a, b)) * b;
-}
-function ceil100(n: number): number {
-  return Math.ceil(n / 100) * 100;
-}
 
 export type AssortTypeV2 = {
   cost: number;
@@ -61,68 +54,69 @@ export type AssortTypeV2 = {
   ratio: number;
 };
 
-const fail = (reason: string, setCost = 0, itemCount = 1): SizingV2Result & { itemCount: number } => ({
+const fail = (
+  reason: string,
+  setCost = 0,
+  itemCount = 1,
+  unitPrice = 0,
+  wholesale = 0,
+): SizingV2Result & { itemCount: number } => ({
   ok: false, reason, setCost, sets: 0,
-  unitPrice: itemCount > 0 ? setCost / itemCount : 0,
+  unitPrice,
   minLotPrice: 0, maxLots: 0,
-  leafQty: 0, costTotal: 0, isHalfOk: false, itemCount,
+  leafQty: 0, costTotal: 0, wholesale, isHalfOk: false, itemCount,
 });
 
 /**
- * セット（プライズ）方式の共通サイジング。単品・アソート兼用。
+ * ロット方式の共通サイジング。単品・アソート兼用。
  */
 function sizeSets(
   types: AssortTypeV2[],
   s: SizingV2Settings,
 ): SizingV2Result & { itemCount: number } {
-  const itemCount = types.length;
-  // 単価 = 1プライズ(セット)の原価合計
-  const setCost = types.reduce((a, t) => a + t.cost * t.ratio, 0);
-  const setBoxes = types.reduce((a, t) => a + t.ratio, 0);
-  if (setCost <= 0 || setBoxes <= 0) return fail('no_cost', 0, itemCount);
+  const activeTypes = types.filter((t) => t.ratio > 0);
+  const itemCount = activeTypes.length;
+  const setCost = activeTypes.reduce((a, t) => a + t.cost * t.ratio, 0);
+  if (itemCount === 0 || setCost <= 0) return fail('no_cost', 0, itemCount);
 
-  // 単価が上限超 → 企画対象外（アソートなら「合計>1000でアソート不可」）
-  if (setCost > s.unitPriceCap) return fail('unit_over', setCost, itemCount);
+  const lotQty = activeTypes.reduce((a, t) => a + Math.max(t.minLotQty, 1) * t.ratio, 0);
+  const lotPrice = activeTypes.reduce(
+    (a, t) => a + t.cost * Math.max(t.minLotQty, 1) * t.ratio,
+    0,
+  );
 
-  // 最小発注（ケース）を満たすセット数の刻み。
-  // タイプ毎に「最小ロットを ratio で割った必要セット数」を求め、その最小公倍数。
-  let step = 1;
-  for (const t of types) {
-    const per = t.ratio > 0 ? Math.ceil(t.minLotQty / t.ratio) : t.minLotQty;
-    step = lcm(step, Math.max(per, 1));
-  }
+  if (lotQty <= 0 || lotPrice <= 0) return fail('no_cost', setCost, itemCount);
 
-  const lotPrice = setCost * step; // 1ロット（最小発注）の原価
+  // 1ロットが33,000円を超えたら完全に企画対象外。
   if (lotPrice > s.costCap) return fail('cost_over', setCost, itemCount);
 
-  const maxSets = Math.floor(s.costCap / setCost);
-  const sets = Math.floor(maxSets / step) * step; // ケース単位に丸めたセット数
-  if (sets < step) return fail('cost_over', setCost, itemCount);
+  const maxLots = Math.floor(s.costCap / lotPrice);
+  if (maxLots < 1) return fail('cost_over', setCost, itemCount);
 
-  // 掲載用に変換
-  // unitPrice = 1商品あたりの原価（setCost ÷ 種類数）
-  // leafQty   = 総箱数（sets × 種類数）
-  // → unitPrice × leafQty = setCost × sets ✓（整合）
-  const unitPrice = setCost / itemCount;
-  const leafQty = sets * itemCount;
-  const costTotal = ceil100(unitPrice * leafQty);
+  const leafQty = lotQty * maxLots;
+  const costTotal = lotPrice * maxLots;
+  const wholesale = (costTotal + s.salesAdd) * s.profitCoef;
+  const unitPrice = wholesale / leafQty;
   const isHalfOk = lotPrice <= s.halfBase;
+  const ok = unitPrice <= s.unitPriceCap;
 
   return {
-    ok: true,
+    ok,
+    reason: ok ? undefined : 'unit_over',
     setCost,
-    sets,
+    sets: maxLots,
     unitPrice,
     leafQty,
     costTotal,
+    wholesale,
     minLotPrice: lotPrice,
-    maxLots: sets / step,
+    maxLots,
     isHalfOk,
     itemCount,
   };
 }
 
-/** 単品サイジング（1プライズ = 商品1個） */
+/** 単品サイジング（1商品パッケージ = 1個） */
 export function sizeSingleV2(
   cost: number,
   minLotQty: number,
@@ -131,23 +125,58 @@ export function sizeSingleV2(
   return sizeSets([{ cost, minLotQty, ratio: 1 }], s);
 }
 
-/** アソートサイジング（1プライズ = 各タイプ ratio 個ずつ。単価 = 原価合計） */
+function hasSameAssortBasis(types: AssortTypeV2[]): boolean {
+  if (types.length < 2) return false;
+  const first = types[0];
+  return types.every(
+    (t) => t.cost === first.cost && Math.max(t.minLotQty, 1) === Math.max(first.minLotQty, 1),
+  );
+}
+
+/**
+ * 同一条件アソートは、各商品の単品卸価格をアイテム数で按分して合算する。
+ * 候補グループ側で上代・規格・入数も揃えているため、合計は単品掲載時と同じになる。
+ */
+function sizeMatchedAssort(
+  activeTypes: AssortTypeV2[],
+  s: SizingV2Settings,
+): SizingV2Result & { itemCount: number } {
+  const itemCount = activeTypes.length;
+  const first = activeTypes[0];
+  const single = sizeSets([{ cost: first.cost, minLotQty: first.minLotQty, ratio: 1 }], s);
+
+  return {
+    ...single,
+    // 単品価格をアイテム数で按分して足すため、合計は単品掲載時と同額。
+    wholesale: single.wholesale,
+    costTotal: single.costTotal,
+    leafQty: single.leafQty,
+    unitPrice: single.unitPrice,
+    setCost: activeTypes.reduce((a, t) => a + t.cost * t.ratio, 0),
+    itemCount,
+  };
+}
+
+/** アソートサイジング */
 export function sizeAssortV2(
   types: AssortTypeV2[],
   s: SizingV2Settings = DEFAULT_V2_SETTINGS,
 ): SizingV2Result & { itemCount: number } {
+  const activeTypes = types.filter((t) => t.ratio > 0);
+  if (hasSameAssortBasis(activeTypes)) {
+    return sizeMatchedAssort(activeTypes, s);
+  }
   return sizeSets(types, s);
 }
 
 /**
  * アソート可否の事前判定（数量計算前）。
  * メーカー・規格・入数・上代でグルーピング済みの候補に対し、
- * 「原価合計（比率1:1想定）が unitPriceCap 以内か」で成立可否を返す。
+ * 詳細な可否は数量計算後に判定する。ここでは明らかに成立しない原価を除く。
  */
 export function canAssort(
   costs: number[],
   s: SizingV2Settings = DEFAULT_V2_SETTINGS,
 ): boolean {
-  const sum = costs.reduce((a, c) => a + c, 0);
-  return sum > 0 && sum <= s.unitPriceCap;
+  return costs.length > 0 && costs.every((c) => c > 0 && c * s.profitCoef < s.unitPriceCap);
 }

@@ -133,6 +133,7 @@
     left: 0;
     right: 0;
     bottom: 130px;
+    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -142,45 +143,33 @@
     background: transparent;
   }
 
-  /* 単品: 画像1枚を大きく */
-  .product-area.single img {
+  /* 商品画像スロット: 等幅で商品エリア全高を占有 */
+  .img-slot {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .img-slot img {
     width: 100%;
     height: 100%;
     object-fit: contain;
     mix-blend-mode: multiply;
+    display: block;
   }
 
-  /* アソート2種: 2分割 */
-  .product-area.assort-2 img {
-    width: 48%;
-    height: 100%;
-    object-fit: contain;
-    mix-blend-mode: multiply;
-  }
-
-  /* アソート3種: 3分割 */
-  .product-area.assort-3 img {
-    width: 32%;
-    height: 100%;
-    object-fit: contain;
-    mix-blend-mode: multiply;
-  }
-
-  /* アソート4種以上: 2×2グリッド */
+  /* アソート4種以上: 2×2 flex-wrap グリッド */
   .product-area.assort-4 {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    grid-template-rows: repeat(2, 1fr);
-    gap: 14px;
-    padding: 14px 24px;
-    align-items: unset;
-    justify-items: center;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
   }
-  .product-area.assort-4 img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    mix-blend-mode: multiply;
+  .product-area.assort-4 .img-slot {
+    flex: 0 0 calc(50% - 10px);
+    height: calc(50% - 7px);
   }
 
   /* 商品画像プレースホルダー */
@@ -222,19 +211,20 @@
     letter-spacing: 0;
   }
 
-  /* 商品名 */
+  /* 商品名: 2行まで許容、js-fit でフォント縮小 */
   .product-name {
     position: absolute;
     left: 20px;
     top: 32px;
     width: 560px;
+    height: 50px;
     font-size: 38px;
     font-weight: 900;
     line-height: 1.05;
     color: #111;
-    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: break-word;
+    word-break: break-all;
   }
 
   /* 数値メトリクス行 */
@@ -374,7 +364,7 @@
   <!-- 情報バー -->
   <footer class="info-bar">
     <div class="product-code">{{PRODUCT_CODE}}</div>
-    <div class="product-name js-fit-width" data-min-font="24">{{LEAF_NAME}}</div>
+    <div class="product-name js-fit" data-min-font="16">{{LEAF_NAME}}</div>
 
     <div class="metrics">
       <div class="metric">

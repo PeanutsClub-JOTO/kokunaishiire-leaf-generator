@@ -14,6 +14,7 @@ import type { LeafletData } from '../../lib/leaf/generate-pdf';
 import { buildHtml } from '../../lib/leaf/generate-pdf';
 import type { LeafletImageData } from '../../lib/leaf/generate-image';
 import { buildLeafImageHtml } from '../../lib/leaf/generate-image';
+import { timeoutMsFromEnv, withTimeout } from '../../lib/async/timeout';
 
 const PORT = parseInt(process.env.RENDERER_PORT ?? '3001', 10);
 const TEMPLATE_PATH = path.join(__dirname, '../../lib/leaf/template.html');
@@ -75,17 +76,21 @@ export async function renderLeafImageBuffer(data: LeafletImageData): Promise<Buf
     await page.setContent(html, { waitUntil: 'load', timeout: 30000 });
     await page.evaluateHandle('document.fonts.ready');
     // 全 <img> が読み込まれるまで待機（外部URL画像対応）
-    await page.evaluate(() =>
-      Promise.all(
-        [...document.querySelectorAll('img')].map((img) =>
-          (img as HTMLImageElement).complete
-            ? Promise.resolve()
-            : new Promise<void>((resolve) => {
-                img.addEventListener('load', () => resolve());
-                img.addEventListener('error', () => resolve());
-              }),
+    await withTimeout(
+      page.evaluate(() =>
+        Promise.all(
+          [...document.querySelectorAll('img')].map((img) =>
+            (img as HTMLImageElement).complete
+              ? Promise.resolve()
+              : new Promise<void>((resolve) => {
+                  img.addEventListener('load', () => resolve());
+                  img.addEventListener('error', () => resolve());
+                }),
+          ),
         ),
       ),
+      timeoutMsFromEnv('RENDER_IMAGE_LOAD_TIMEOUT_MS', 12_000),
+      'Leaflet image asset loading',
     );
     const image = await page.screenshot({
       type: 'png',

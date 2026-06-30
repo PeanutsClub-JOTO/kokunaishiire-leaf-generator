@@ -6,6 +6,7 @@
  * 信頼度スコアが 0.7 未満の場合は low_extract_conf フラグを立てる。
  */
 import { getGeminiClient } from '../llm/gemini';
+import { timeoutMsFromEnv, withTimeout } from '../async/timeout';
 
 export type RawProductFromLlm = {
   no: number | null;
@@ -98,14 +99,18 @@ export async function extractFromImagePdf(
 ): Promise<LlmExtractResult> {
   const client = getGeminiClient();
 
-  const result = await client.generate(
-    '添付の見積書から、全商品の情報をJSONで抽出してください。',
-    {
-      systemPrompt: SYSTEM_PROMPT,
-      images: [{ mimeType, data: imageBase64 }],
-      responseSchema: PRODUCT_SCHEMA,
-      temperature: 0.1, // 低温で確実な抽出
-    },
+  const result = await withTimeout(
+    client.generate(
+      '添付の見積書から、全商品の情報をJSONで抽出してください。',
+      {
+        systemPrompt: SYSTEM_PROMPT,
+        images: [{ mimeType, data: imageBase64 }],
+        responseSchema: PRODUCT_SCHEMA,
+        temperature: 0.1, // 低温で確実な抽出
+      },
+    ),
+    timeoutMsFromEnv('PDF_OCR_TIMEOUT_MS', 90_000),
+    'Gemini PDF OCR',
   );
 
   const parsed = result.parsed as { confidence: number; products: RawProductFromLlm[] } | undefined;

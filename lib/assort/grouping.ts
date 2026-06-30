@@ -1,11 +1,13 @@
 /**
  * アソートグルーピング (仕様書 v2.1 §7)
  *
- * 同一シート内で次の4項目が一致する商品を1つの候補グループにまとめる:
+ * 同一シート内で次の6条件が一致する商品を1つの候補グループにまとめる:
  * 1. メーカー（完全一致）
  * 2. 規格（spec_pieces同士 or spec_grams同士の一致。型違いは不一致）
  * 3. 入数（case_qty × lots_per_kou の一致）
  * 4. 上代（差が retailTolerance 以内。既定0=完全一致）
+ * 5. 単価（完全一致）
+ * 6. 最小ロット数（完全一致）
  *
  * 候補が1商品のみ → is_single=true
  */
@@ -62,7 +64,7 @@ function retailMatches(
   return Math.abs(a.retail_price - b.retail_price) <= tolerance;
 }
 
-// グループキーを生成（メーカー|規格正規化|入数|上代バケット）
+// グループキーを生成（メーカー|規格正規化|入数|上代バケット|単価|最小ロット数）
 function buildGroupKey(p: ProductForGrouping, tolerance: number): string {
   const maker = p.maker_name ?? '';
   const spec =
@@ -81,7 +83,7 @@ function buildGroupKey(p: ProductForGrouping, tolerance: number): string {
       : tolerance === 0
         ? String(p.retail_price)
         : String(Math.floor(p.retail_price / tolerance) * tolerance);
-  return `${maker}|${spec}|${irisu}|${retail}`;
+  return `${maker}|${spec}|${irisu}|${retail}|${p.cost}|${p.min_lot_qty}`;
 }
 
 /**
@@ -97,12 +99,14 @@ export function groupProducts(
   const groups = new Map<string, string[]>();
 
   for (const p of products) {
-    // 4項目すべて揃っていない商品は単品扱い
+    // アソート条件が揃っていない商品は単品扱い
     if (
       !p.maker_name ||
       (p.spec_pieces === null && p.spec_grams === null) ||
       !p.case_qty ||
-      p.retail_price === null
+      p.retail_price === null ||
+      p.cost <= 0 ||
+      p.min_lot_qty <= 0
     ) {
       const singleKey = `single:${p.id}`;
       groups.set(singleKey, [p.id]);

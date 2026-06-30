@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createServerClient } from '@/lib/supabase/client';
 import LeafletWorkbench, { type WorkbenchLeaflet } from '@/components/LeafletWorkbench';
+import type { SizingV2Settings } from '@/lib/calc/sizing-v2';
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -42,6 +43,24 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
         `)
         .in('sheet_id', sheetIds)
     : { data: [] };
+
+  const { data: settingsRows } = await supabase
+    .from('app_settings')
+    .select('key, value');
+  const sizingSettings: SizingV2Settings = {
+    profitCoef: 1.25,
+    salesAdd: 3000,
+    unitPriceCap: 1000,
+    costCap: 33000,
+    halfBase: 16500,
+  };
+  for (const row of settingsRows ?? []) {
+    if (row.key === 'profit_coef') sizingSettings.profitCoef = row.value;
+    if (row.key === 'sales_add') sizingSettings.salesAdd = row.value;
+    if (row.key === 'unit_price_cap') sizingSettings.unitPriceCap = row.value;
+    if (row.key === 'cost_cap') sizingSettings.costCap = row.value;
+    if (row.key === 'half_base') sizingSettings.halfBase = row.value;
+  }
 
   // ワークベンチ用に整形
   const leaflets: WorkbenchLeaflet[] = [];
@@ -119,6 +138,7 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
           quotationId={id}
           leaflets={leaflets}
           templateHtml={templateHtml}
+          settings={sizingSettings}
         />
       )}
     </div>

@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as XLSX from 'xlsx';
-import { extractXlsxCells, type RawProductRow } from '../../../lib/import/xlsx-cells';
+import { extractXlsxCells, type RawProductRow, type RawSheetData } from '../../../lib/import/xlsx-cells';
 
 /**
- * 実見積データ（正氣屋製菓発行・ピーナッツクラブ宛）に対する回帰テスト。
+ * 実見積データに対する回帰テスト。
  *
  * 実ファイルが暴いた以下のバグの再発を防ぐ:
  *  A. ヘッダー「№」(U+2116) 未対応 → no が全件 null（画像紐付け不能）
@@ -27,8 +27,16 @@ function loadReal(file: string): RawProductRow[] {
   return sheets.flatMap((s) => s.products);
 }
 
+function loadRealXlsx(file: string): RawSheetData[] {
+  if (!has(file)) return [];
+  const buf = fs.readFileSync(path.join(__dirname, file));
+  return extractXlsxCells(buf);
+}
+
 const ymd = (d: Date | null) =>
-  d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null;
+  d
+    ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    : null;
 
 describe.skipIf(!has('kanazawa.csv'))('実見積: 金澤兼六製菓 (kanazawa.csv)', () => {
   const products = loadReal('kanazawa.csv');
@@ -73,6 +81,11 @@ describe.skipIf(!has('kanazawa.csv'))('実見積: 金澤兼六製菓 (kanazawa.c
     expect(products[1].piece_size).toBe('W255×D195×H60'); // ②
     expect(products[11].piece_size).toBe('W235×D386×H64'); // ⑫
   });
+
+  it('全商品に parse_errors がない', () => {
+    const withErrors = products.filter((p) => p.parse_errors.length > 0);
+    expect(withErrors).toHaveLength(0);
+  });
 });
 
 describe.skipIf(!has('hokushin.csv'))('実見積: 北辰フーズ (hokushin.csv)', () => {
@@ -96,5 +109,87 @@ describe.skipIf(!has('hokushin.csv'))('実見積: 北辰フーズ (hokushin.csv)
     const p = products[6];
     expect(ymd(p.sales_period_start)).toBe('2026-04-17');
     expect(ymd(p.sales_period_end)).toBe('2026-07-31');
+  });
+});
+
+// ─── 北辰フーズ v2 (hokushin2.xlsx 3シート構成) ─────────────────────────────
+//
+// hokushin2.xlsx は実際の .xlsx ファイルとして存在する（CSV 経由でない）。
+// ヘッダー列が広い範囲に分散しており（A列〜FI列=164列）、
+// 「賞味期間(夏期)」エイリアスや「最小ﾛｯﾄ（半角カナ）」など複数の表記揺れを検証する。
+
+describe.skipIf(!has('hokushin2.xlsx'))('実見積: 北辰フーズ v2 (hokushin2.xlsx / 3シート)', () => {
+  const sheets = loadRealXlsx('hokushin2.xlsx');
+
+  it('3シートをすべて抽出できる', () => {
+    expect(sheets).toHaveLength(3);
+  });
+
+  it('各シートの商品数が正しい（12・12・9）', () => {
+    expect(sheets.map((s) => s.products.length)).toEqual([12, 12, 9]);
+  });
+
+  it('各シートの商品Noが1からの連番になっている', () => {
+    expect(sheets[0].products.map((p) => p.no)).toEqual([1,2,3,4,5,6,7,8,9,10,11,12]);
+    expect(sheets[1].products.map((p) => p.no)).toEqual([1,2,3,4,5,6,7,8,9,10,11,12]);
+    expect(sheets[2].products.map((p) => p.no)).toEqual([1,2,3,4,5,6,7,8,9]);
+  });
+
+  it('全角ＪＡＮコード列（ＪＡＮコード表記）を取得できる', () => {
+    const allProducts = sheets.flatMap((s) => s.products);
+    expect(allProducts.every((p) => /^\d{13}$/.test(p.jan_code ?? ''))).toBe(true);
+    // シート01 ①
+    expect(sheets[0].products[0].jan_code).toBe('4582179291442');
+  });
+
+  it('シート01 ① の主要項目を正確に転記できる', () => {
+    const p = sheets[0].products[0];
+    expect(p.product_name).toBe('涼ごこち福岡県産あまおう苺ゼリー');
+    expect(p.maker_name).toBe('北辰フーズ');
+    expect(p.cost).toBe(150);
+    expect(p.case_qty).toBe(15);
+    expect(p.lots_per_kou).toBe(4);
+    expect(p.min_lot_qty).toBe(60); // 1甲 = 15×4
+    expect(p.shelf_life_days).toBe(240);
+    expect(p.parse_errors).toEqual([]);
+  });
+
+  it('シート02 ① の主要項目を正確に転記できる', () => {
+    const p = sheets[1].products[0];
+    expect(p.product_name).toBe('愛媛県産せとかひとくちゼリー');
+    expect(p.cost).toBe(260);
+    expect(p.case_qty).toBe(12);
+    expect(p.lots_per_kou).toBe(4);
+    expect(p.min_lot_qty).toBe(48); // 1甲 = 12×4
+    expect(p.shelf_life_days).toBe(180);
+    expect(p.parse_errors).toEqual([]);
+  });
+
+  it('シート03 ① の主要項目を正確に転記できる', () => {
+    const p = sheets[2].products[0];
+    expect(p.product_name).toBe('岡山白桃カステラ');
+    expect(p.cost).toBe(225);
+    expect(p.case_qty).toBe(12);
+    expect(p.lots_per_kou).toBe(6);
+    expect(p.min_lot_qty).toBe(72); // 1甲 = 12×6
+    expect(p.shelf_life_days).toBe(180);
+    expect(p.parse_errors).toEqual([]);
+  });
+
+  it('商品画像エリアからピース寸法を各商品に紐付けできる', () => {
+    // シート01
+    expect(sheets[0].products[0].piece_size).toBe('W73×D73×H73');  // ①
+    expect(sheets[0].products[4].piece_size).toBe('W160×D160×H55'); // ⑤
+    // シート02
+    expect(sheets[1].products[0].piece_size).toBe('W160×D160×H55'); // ①
+    // シート03
+    expect(sheets[2].products[0].piece_size).toBe('W165×D55×H100'); // ①
+    expect(sheets[2].products[6].piece_size).toBe('W170×D60×H80');  // ⑦
+  });
+
+  it('全シート・全商品に parse_errors がない', () => {
+    const allProducts = sheets.flatMap((s) => s.products);
+    const withErrors = allProducts.filter((p) => p.parse_errors.length > 0);
+    expect(withErrors).toHaveLength(0);
   });
 });

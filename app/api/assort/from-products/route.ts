@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/client';
 import { sizeAssortV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
+import { groupProducts, type ProductForGrouping } from '@/lib/assort/grouping';
 
 export async function POST(req: NextRequest) {
   const supabase = createServerClient();
@@ -39,20 +40,43 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'base group not found' }, { status: 404 });
   }
 
-  // 商品情報（原価・最小ロット・賞味期限）を取得
+  // 商品情報（アソート互換条件・原価・最小ロット・賞味期限）を取得
   const productIds = body.items.map((i) => i.product_id);
+  const requestedIds = new Set(productIds);
   const { data: products, error: pErr } = await supabase
     .from('products')
-    .select('id, product_name, cost, min_lot_qty, shelf_life_days')
+    .select('id, sheet_id, product_name, maker_name, spec_pieces, spec_grams, case_qty, lots_per_kou, retail_price, cost, min_lot_qty, shelf_life_days')
+    .eq('sheet_id', baseGroup.sheet_id)
     .in('id', productIds);
-  if (pErr || !products) {
+  if (pErr || !products || products.length !== requestedIds.size) {
     return NextResponse.json({ error: 'products not found' }, { status: 404 });
+  }
+
+  const groupingProducts: ProductForGrouping[] = products.map((p) => ({
+    id: p.id,
+    maker_name: p.maker_name,
+    spec_pieces: p.spec_pieces,
+    spec_grams: p.spec_grams,
+    case_qty: p.case_qty,
+    lots_per_kou: p.lots_per_kou,
+    retail_price: p.retail_price,
+    cost: p.cost ?? 0,
+    min_lot_qty: p.min_lot_qty ?? 0,
+  }));
+  const compatibilityGroups = groupProducts(groupingProducts, 0);
+  if (compatibilityGroups.length !== 1 || compatibilityGroups[0].is_single) {
+    return NextResponse.json(
+      { error: '単価・上代・規格・入数・最小ロット数が同じ商品だけアソートできます' },
+      { status: 422 },
+    );
   }
 
   // 設定取得
   const { data: settingsRows } = await supabase.from('app_settings').select('key, value');
-  const s: SizingV2Settings = { unitPriceCap: 1000, costCap: 33000, halfBase: 16500 };
+  const s: SizingV2Settings = { profitCoef: 1.25, salesAdd: 3000, unitPriceCap: 1000, costCap: 33000, halfBase: 16500 };
   for (const row of settingsRows ?? []) {
+    if (row.key === 'profit_coef') s.profitCoef = row.value;
+    if (row.key === 'sales_add') s.salesAdd = row.value;
     if (row.key === 'unit_price_cap') s.unitPriceCap = row.value;
     if (row.key === 'cost_cap') s.costCap = row.value;
     if (row.key === 'half_base') s.halfBase = row.value;
@@ -115,7 +139,7 @@ export async function POST(req: NextRequest) {
     item_count: products.length,
     leaf_qty: sizing.leafQty,
     cost_total: sizing.costTotal,
-    wholesale_price: sizing.costTotal,
+    wholesale_price: sizing.wholesale,
     unit_price: sizing.unitPrice,
     is_half_ok: sizing.isHalfOk,
     shelf_life_days: shelfDays,

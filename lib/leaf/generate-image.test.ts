@@ -23,8 +23,8 @@ const baseData: LeafletImageData = {
 const template = `
   <div>{{MAIN_COPY}}</div>
   <div>{{SALES_COPY}}</div>
-  <div>{{HERO_IMAGE_HTML}}</div>
-  <div>{{SUB_IMAGE_HTML}}</div>
+  <div>{{PRODUCT_AREA_CLASS}}</div>
+  <div>{{PRODUCT_IMAGES_HTML}}</div>
   <div>{{PRODUCT_CODE}}</div>
   <div>{{LEAF_NAME}}</div>
   <div>{{ITEM_COUNT}}</div>
@@ -40,6 +40,7 @@ const template = `
   <div>{{THEME_LABEL}}</div>
   <div>{{DRAFT_CLASS}}</div>
   <div>{{STATUS_LABEL}}</div>
+  <div>{{HALF_NG_CLASS}}</div>
 `;
 
 describe('buildLeafImageHtml', () => {
@@ -72,7 +73,7 @@ describe('buildLeafImageHtml', () => {
       ],
     }, template);
 
-    expect(html).toContain('assort-grid');
+    expect(html).toContain('assort-3');
     expect(html).toContain('https://example.com/a.jpg');
     expect(html).toContain('https://example.com/b.jpg');
     expect(html).toContain('https://example.com/c.jpg');

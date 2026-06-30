@@ -16,14 +16,11 @@ export async function upscaleImageBuffer(buffer: Buffer): Promise<Buffer> {
   const h = meta.height ?? 0;
   const longer = Math.max(w, h);
 
-  if (longer >= TARGET_LONGER_SIDE) {
-    // 既に十分な解像度 → そのまま返す
-    return buffer;
-  }
+  if (longer <= 0) return buffer;
 
-  const scale = TARGET_LONGER_SIDE / longer;
-  const newW = Math.round(w * scale);
-  const newH = Math.round(h * scale);
+  const scale = longer >= TARGET_LONGER_SIDE ? 1 : TARGET_LONGER_SIDE / longer;
+  const newW = Math.max(1, Math.round(w * scale));
+  const newH = Math.max(1, Math.round(h * scale));
 
   return img
     .resize(newW, newH, {
@@ -37,10 +34,10 @@ export async function upscaleImageBuffer(buffer: Buffer): Promise<Buffer> {
 /** Base64データURLに変換（アップスケール済み） */
 export async function upscaleToDataUrl(
   buffer: Buffer,
-  mimeType = 'image/png',
+  _mimeType = 'image/png',
 ): Promise<string> {
   const upscaled = await upscaleImageBuffer(buffer);
-  return `data:${mimeType};base64,${upscaled.toString('base64')}`;
+  return `data:image/png;base64,${upscaled.toString('base64')}`;
 }
 
 /** URL から画像を取得してアップスケールしたデータURLを返す */

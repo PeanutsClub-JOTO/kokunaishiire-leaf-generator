@@ -8,6 +8,7 @@
  * Imagen 3 向けの最適なプロンプトを動的に生成し、多様な背景に対応する。
  */
 import { getGeminiClient } from '../llm/gemini';
+import { fetchWithTimeout, timeoutMsFromEnv, withTimeout } from '../async/timeout';
 
 export type BgInput = {
   leafName: string;
@@ -49,7 +50,11 @@ async function generateDynamicPrompt(d: BgInput): Promise<string> {
 商品本体やテキストは含めないでください。`;
 
   try {
-    const res = await client.generate(userPrompt, { systemPrompt, temperature: 0.7 });
+    const res = await withTimeout(
+      client.generate(userPrompt, { systemPrompt, temperature: 0.7 }),
+      timeoutMsFromEnv('AI_PROMPT_TIMEOUT_MS', 15_000),
+      'Gemini background prompt',
+    );
     const prompt = res.text.trim();
     // 英語プロンプトの前後にImagen3への絶対の制約を付与
     return `${prompt}, 16:9, background only, absolutely NO text, NO numbers, NO products, NO boxes, empty center for text overlay, high quality, promotional material background.`;
@@ -68,7 +73,7 @@ export async function generateBackground(input: BgInput): Promise<Buffer | null>
   console.log(`[ai-background] Imagen3 Prompt: ${prompt}`);
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
       {
         method: 'POST',
@@ -83,6 +88,8 @@ export async function generateBackground(input: BgInput): Promise<Buffer | null>
           },
         }),
       },
+      timeoutMsFromEnv('IMAGEN_TIMEOUT_MS', 45_000),
+      'Imagen background generation',
     );
 
     if (!res.ok) {

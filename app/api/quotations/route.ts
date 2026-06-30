@@ -8,6 +8,11 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/client';
+import {
+  detectQuotationSourceType,
+  quotationUploadContentType,
+  safeQuotationStorageName,
+} from '@/lib/storage/quotation-file';
 
 export async function POST(req: NextRequest) {
   const supabase = createServerClient();
@@ -27,13 +32,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 });
     }
 
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    sourceType = ext === 'pdf' ? 'pdf' : 'xlsx';
-    fileName = file.name;
+    const detected = detectQuotationSourceType(file.name);
+    if (!detected) {
+      return NextResponse.json(
+        { error: '対応ファイルは .xlsx .xls .pdf のみです' },
+        { status: 400 },
+      );
+    }
+
+    sourceType = detected;
+    fileName = safeQuotationStorageName(file.name);
 
     const arrayBuffer = await file.arrayBuffer();
     fileBuffer = Buffer.from(arrayBuffer);
-    sourceRef = file.name;
+    sourceRef = fileName;
   } else {
     // JSON（GSheet）
     const body = await req.json();
@@ -65,11 +77,16 @@ export async function POST(req: NextRequest) {
     const { error: storageErr } = await supabase.storage
       .from('quotation-files')
       .upload(storagePath, fileBuffer, {
-        contentType: sourceType === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        contentType: quotationUploadContentType(fileName),
       });
 
     if (storageErr) {
       console.warn('Storage upload failed:', storageErr.message);
+      await supabase.from('quotations').delete().eq('id', quotation.id);
+      return NextResponse.json(
+        { error: `見積書ファイルの保存に失敗しました: ${storageErr.message}` },
+        { status: 500 },
+      );
     }
   }
 

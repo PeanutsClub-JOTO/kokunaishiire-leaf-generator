@@ -17,7 +17,7 @@ function makeProduct(overrides: Partial<ProductForGrouping> & { id: string }): P
 }
 
 describe('groupProducts', () => {
-  it('4項目完全一致の2商品は同グループ', () => {
+  it('6条件完全一致の2商品は同グループ', () => {
     const products = [
       makeProduct({ id: 'p1', spec_pieces: 6 }),
       makeProduct({ id: 'p2', spec_pieces: 6 }),
@@ -29,7 +29,7 @@ describe('groupProducts', () => {
     expect(groups[0].is_single).toBe(false);
   });
 
-  it('4項目完全一致の4商品は同グループ', () => {
+  it('6条件完全一致の4商品は同グループ', () => {
     const products = [
       makeProduct({ id: 'p1', spec_pieces: 6 }),
       makeProduct({ id: 'p2', spec_pieces: 6 }),
@@ -90,6 +90,24 @@ describe('groupProducts', () => {
     const products = [
       makeProduct({ id: 'p1', spec_pieces: 6, case_qty: 12, lots_per_kou: 1 }),
       makeProduct({ id: 'p2', spec_pieces: 6, case_qty: 12, lots_per_kou: 4 }),
+    ];
+    const groups = groupProducts(products, 0);
+    expect(groups).toHaveLength(2);
+  });
+
+  it('単価違いは別グループ', () => {
+    const products = [
+      makeProduct({ id: 'p1', spec_pieces: 6, cost: 400 }),
+      makeProduct({ id: 'p2', spec_pieces: 6, cost: 420 }),
+    ];
+    const groups = groupProducts(products, 0);
+    expect(groups).toHaveLength(2);
+  });
+
+  it('最小ロット数違いは別グループ', () => {
+    const products = [
+      makeProduct({ id: 'p1', spec_pieces: 6, min_lot_qty: 12 }),
+      makeProduct({ id: 'p2', spec_pieces: 6, min_lot_qty: 24 }),
     ];
     const groups = groupProducts(products, 0);
     expect(groups).toHaveLength(2);
