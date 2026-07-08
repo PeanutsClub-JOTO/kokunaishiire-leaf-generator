@@ -1,65 +1,62 @@
 /**
  * Gemini LlmClient 実装
  *
- * モデル名は環境変数 LLM_MODEL で指定（既定: gemini-2.0-flash）。
+ * モデル名は環境変数 LLM_MODEL で指定（既定: gemini-3.1-flash-lite）。
  * JSON Schema 指定時は responseSchema に渡して構造化出力を取得する。
+ * AQ. 形式の新しい Auth キーに対応するため @google/genai SDK を使用。
  */
-import {
-  GoogleGenerativeAI,
-  type GenerateContentRequest,
-  type Part,
-  SchemaType,
-} from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import type { LlmClient, LlmGenerateOptions, LlmGenerateResult } from './types';
 
+export const DEFAULT_LLM_MODEL = 'gemini-3.1-flash-lite';
+
 export class GeminiClient implements LlmClient {
-  private ai: GoogleGenerativeAI;
+  private ai: GoogleGenAI;
   private modelName: string;
 
   constructor(apiKey?: string) {
     const key = apiKey ?? process.env.GEMINI_API_KEY;
     if (!key) throw new Error('GEMINI_API_KEY is not set');
-    this.ai = new GoogleGenerativeAI(key);
-    this.modelName = process.env.LLM_MODEL ?? 'gemini-2.0-flash';
+    this.ai = new GoogleGenAI({ apiKey: key });
+    this.modelName = process.env.LLM_MODEL ?? DEFAULT_LLM_MODEL;
   }
 
   async generate(
     prompt: string,
     options: LlmGenerateOptions = {},
   ): Promise<LlmGenerateResult> {
-    const model = this.ai.getGenerativeModel({
-      model: this.modelName,
-      systemInstruction: options.systemPrompt,
-      generationConfig: {
-        temperature: options.temperature ?? 0.2,
-        ...(options.responseSchema
-          ? {
-              responseMimeType: 'application/json',
-              responseSchema: options.responseSchema as any,
-            }
-          : {}),
-      },
-    });
+    const contents: Array<{ role: string; parts: Array<Record<string, unknown>> }> = [];
 
-    const parts: Part[] = [];
+    const userParts: Array<Record<string, unknown>> = [];
 
-    // 画像入力
     if (options.images) {
       for (const img of options.images) {
-        parts.push({
-          inlineData: {
-            mimeType: img.mimeType,
-            data: img.data,
-          },
-        });
+        userParts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
       }
     }
+    userParts.push({ text: prompt });
+    contents.push({ role: 'user', parts: userParts });
 
-    parts.push({ text: prompt });
+    const config: Record<string, unknown> = {
+      temperature: options.temperature ?? 0.2,
+    };
 
-    const request: GenerateContentRequest = { contents: [{ role: 'user', parts }] };
-    const result = await model.generateContent(request);
-    const text = result.response.text();
+    if (options.systemPrompt) {
+      config.systemInstruction = options.systemPrompt;
+    }
+
+    if (options.responseSchema) {
+      config.responseMimeType = 'application/json';
+      config.responseSchema = options.responseSchema;
+    }
+
+    const response = await this.ai.models.generateContent({
+      model: this.modelName,
+      contents,
+      config,
+    });
+
+    const text = response.text ?? '';
 
     let parsed: unknown;
     if (options.responseSchema) {

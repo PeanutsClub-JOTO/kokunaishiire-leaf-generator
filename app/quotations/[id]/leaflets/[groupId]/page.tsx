@@ -32,7 +32,7 @@ export default async function LeafletWorkbenchPage({ params }: PageProps) {
         .from('assort_groups')
         .select(`
           id, is_single,
-          leaflets (id, leaf_name, unit_price, status, leaf_image_url)
+          leaflets (id, leaf_name, unit_price, status, leaf_image_url, render_error)
         `)
         .in('sheet_id', sheetIds)
     : { data: [] };
@@ -43,7 +43,7 @@ export default async function LeafletWorkbenchPage({ params }: PageProps) {
     .select(`
       id, is_single,
       assort_items (id, ratio, products (id, no, product_name, cost, min_lot_qty)),
-      leaflets (id, leaf_name, leaf_qty, cost_total, wholesale_price, unit_price, is_half_ok, lead_time, note, leaf_image_url)
+      leaflets (id, leaf_name, leaf_qty, cost_total, wholesale_price, unit_price, is_half_ok, lead_time, note, leaf_image_url, render_error)
     `)
     .eq('id', groupId)
     .single();
@@ -111,6 +111,11 @@ export default async function LeafletWorkbenchPage({ params }: PageProps) {
                     </span>
                     <span>単価 ¥{l?.unit_price ? Math.round(l.unit_price) : '—'}</span>
                   </div>
+                  {l?.render_error && (
+                    <div className="mt-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                      AI背景は通常背景で代替
+                    </div>
+                  )}
                 </Link>
               );
             })}
@@ -133,6 +138,11 @@ export default async function LeafletWorkbenchPage({ params }: PageProps) {
           <div className="mt-4 text-xs text-zinc-500">
             ↑ 左で選択した内容をプレビューします。テキストや比率を変更して生成ボタンを押すと反映されます。
           </div>
+          {activeLeaflet?.render_error && (
+            <div className="mt-3 w-full max-w-3xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              {activeLeaflet.render_error}
+            </div>
+          )}
         </main>
 
         {/* Right Aside (Editor) */}

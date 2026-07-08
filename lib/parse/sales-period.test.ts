@@ -75,6 +75,12 @@ describe('parseShelfLife', () => {
     expect(r.parseError).toBe(false);
   });
 
+  it('"(240日)" → 240', () => {
+    const r = parseShelfLife('(240日)');
+    expect(r.days).toBe(240);
+    expect(r.parseError).toBe(false);
+  });
+
   it('空文字 → parseError=true', () => {
     const r = parseShelfLife('');
     expect(r.parseError).toBe(true);

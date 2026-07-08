@@ -37,10 +37,10 @@ export default function LeafletFinalizeForm({
       leaf_name: leafName,
       lead_time: leadTime,
     };
-    if (finalize) body.status = 'final';
+    if (finalize) body.assort_followup_status = 'unasked';
 
-    const res = await fetch(`/api/leaflets/${leafletId}`, {
-      method: 'PATCH',
+    const res = await fetch(finalize ? `/api/leaflets/${leafletId}/finalize` : `/api/leaflets/${leafletId}`, {
+      method: finalize ? 'POST' : 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });

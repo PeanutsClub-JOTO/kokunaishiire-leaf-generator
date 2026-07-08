@@ -39,7 +39,7 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
         .select(`
           id, is_single, group_key,
           assort_items(product_id, ratio, products(id, no, product_name, image_url, piece_size, jan_code, shelf_life_days, cost, min_lot_qty)),
-          leaflets(id, status, leaf_name, item_count, leaf_qty, cost_total, wholesale_price, unit_price, is_half_ok, lead_time, shelf_life_days, leaf_image_url, render_status, note)
+          leaflets(id, status, leaf_name, item_count, leaf_qty, cost_total, wholesale_price, unit_price, is_half_ok, lead_time, shelf_life_days, leaf_image_url, render_status, render_error, finalized_at, final_visible_until, drive_url, drive_export_status, drive_export_error, assort_followup_status, note)
         `)
         .in('sheet_id', sheetIds)
     : { data: [] };
@@ -89,6 +89,13 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
       shelfLifeDays: leaf.shelf_life_days ?? null,
       leafImageUrl: leaf.leaf_image_url ?? null,
       renderStatus: leaf.render_status ?? 'pending',
+      renderError: leaf.render_error ?? null,
+      finalizedAt: leaf.finalized_at ?? null,
+      finalVisibleUntil: leaf.final_visible_until ?? null,
+      driveUrl: leaf.drive_url ?? null,
+      driveExportStatus: leaf.drive_export_status ?? 'none',
+      driveExportError: leaf.drive_export_error ?? null,
+      assortFollowupStatus: leaf.assort_followup_status ?? 'unasked',
       note: leaf.note ?? null,
       items: items.map((it) => {
         const p = Array.isArray(it.products) ? it.products[0] : it.products;

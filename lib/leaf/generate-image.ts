@@ -30,6 +30,8 @@ export type LeafletImageData = {
   shelfLifeDays: number;
   pieceSize: string | null;
   note: string | null;
+  /** アソート構成商品の品名。背景/コピー生成時に使用する */
+  productNames?: string[];
   /** 見積書から抽出した商品画像（data URL または絶対パス）*/
   productImages: string[];
   flagMessages: string[];

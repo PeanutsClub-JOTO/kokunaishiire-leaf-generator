@@ -68,18 +68,37 @@ function parseCircledNumber(s: string | null | undefined): number | null {
   return isNaN(n) ? null : n;
 }
 
-// セル値を文字列として取得
+/**
+ * 結合セルの先頭アドレスを返す。
+ * 結合範囲内のセルは SheetJS が値を持たないため、ws['!merges'] を参照して
+ * 先頭セル（s）の値を代わりに返す。結合外のセルはそのまま。
+ */
+function resolvedAddr(ws: XLSX.WorkSheet, r: number, c: number): string {
+  const merges: XLSX.Range[] = ws['!merges'] ?? [];
+  for (const m of merges) {
+    if (r >= m.s.r && r <= m.e.r && c >= m.s.c && c <= m.e.c) {
+      return XLSX.utils.encode_cell({ r: m.s.r, c: m.s.c });
+    }
+  }
+  return XLSX.utils.encode_cell({ r, c });
+}
+
+// セル値を文字列として取得（結合セル対応）
 function cellStr(ws: XLSX.WorkSheet, addr: string): string | null {
-  const cell = ws[addr];
+  const { r, c } = XLSX.utils.decode_cell(addr);
+  const resolved = resolvedAddr(ws, r, c);
+  const cell = ws[resolved];
   if (!cell) return null;
   const v = cell.v;
   if (v === null || v === undefined) return null;
   return String(v).trim() || null;
 }
 
-// セル値を数値として取得
+// セル値を数値として取得（結合セル対応）
 function cellNum(ws: XLSX.WorkSheet, addr: string): number | null {
-  const cell = ws[addr];
+  const { r, c } = XLSX.utils.decode_cell(addr);
+  const resolved = resolvedAddr(ws, r, c);
+  const cell = ws[resolved];
   if (!cell) return null;
   return parseLooseNumber(cell.v);
 }
@@ -287,7 +306,12 @@ function detectHeaderRow(ws: XLSX.WorkSheet): {
 
       for (const key of Object.keys(HEADER_ALIASES)) {
         if (matchHeader(val, key)) {
-          (colMap as Record<string, number>)[key] = c;
+          // 結合セルは各列で同じヘッダー値として解決されるため、同一ヘッダーが
+          // 横に連続して見える。後ろの列で上書きすると「240日 / (240日)」の
+          // 後半だけを拾う事故が起きるので、最初に見つけた列を採用する。
+          if ((colMap as Record<string, number | undefined>)[key] === undefined) {
+            (colMap as Record<string, number>)[key] = c;
+          }
           matchCount++;
         }
       }

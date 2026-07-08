@@ -20,7 +20,7 @@ export type Database = {
       quotations: {
         Row: {
           id: string;
-          source_type: 'gsheet' | 'xlsx' | 'pdf';
+          source_type: 'gsheet' | 'xlsx' | 'pdf' | 'eml';
           source_ref: string | null;
           client_name: string | null;
           quoted_at: string | null;
@@ -28,14 +28,14 @@ export type Database = {
         };
         Insert: {
           id?: string;
-          source_type: 'gsheet' | 'xlsx' | 'pdf';
+          source_type: 'gsheet' | 'xlsx' | 'pdf' | 'eml';
           source_ref?: string | null;
           client_name?: string | null;
           quoted_at?: string | null;
           created_at?: string;
         };
         Update: {
-          source_type?: 'gsheet' | 'xlsx' | 'pdf';
+          source_type?: 'gsheet' | 'xlsx' | 'pdf' | 'eml';
           source_ref?: string | null;
           client_name?: string | null;
           quoted_at?: string | null;
@@ -219,6 +219,13 @@ export type Database = {
           template_version: string | null;
           render_status: string;
           render_error: string | null;
+          finalized_at: string | null;
+          final_visible_until: string | null;
+          drive_file_id: string | null;
+          drive_url: string | null;
+          drive_export_status: 'none' | 'pending' | 'exporting' | 'done' | 'error';
+          drive_export_error: string | null;
+          assort_followup_status: 'unasked' | 'not_needed' | 'accepted' | 'declined';
           created_at: string;
           updated_at: string;
         };
@@ -245,6 +252,13 @@ export type Database = {
           template_version?: string | null;
           render_status?: string;
           render_error?: string | null;
+          finalized_at?: string | null;
+          final_visible_until?: string | null;
+          drive_file_id?: string | null;
+          drive_url?: string | null;
+          drive_export_status?: 'none' | 'pending' | 'exporting' | 'done' | 'error';
+          drive_export_error?: string | null;
+          assort_followup_status?: 'unasked' | 'not_needed' | 'accepted' | 'declined';
           created_at?: string;
           updated_at?: string;
         };
@@ -284,7 +298,17 @@ export type Database = {
           id: string;
           quotation_id: string | null;
           target_id: string | null;
-          job_type: 'import_xlsx' | 'import_gsheet' | 'import_pdf' | 'import_image_pdf' | 'generate_pdf' | 'render_leaflet_image';
+          job_type:
+            | 'import_xlsx'
+            | 'import_gsheet'
+            | 'import_pdf'
+            | 'import_image_pdf'
+            | 'import_eml'
+            | 'gmail_scan'
+            | 'gmail_ingest_message'
+            | 'generate_pdf'
+            | 'render_leaflet_image'
+            | 'export_final_leaflet_to_drive';
           status: 'queued' | 'running' | 'done' | 'error';
           progress: number;
           error_message: string | null;
@@ -321,6 +345,80 @@ export type Database = {
         Update: { value?: number; updated_at?: string };
         Relationships: [];
       };
+      gmail_estimate_messages: {
+        Row: {
+          id: string;
+          gmail_message_id: string;
+          gmail_thread_id: string | null;
+          subject: string | null;
+          from_address: string | null;
+          received_at: string | null;
+          snippet: string | null;
+          archive_storage_prefix: string | null;
+          gmail_label_applied: boolean;
+          status: 'archived' | 'queued' | 'processed' | 'error';
+          error_message: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          gmail_message_id: string;
+          gmail_thread_id?: string | null;
+          subject?: string | null;
+          from_address?: string | null;
+          received_at?: string | null;
+          snippet?: string | null;
+          archive_storage_prefix?: string | null;
+          gmail_label_applied?: boolean;
+          status?: Database['public']['Tables']['gmail_estimate_messages']['Row']['status'];
+          error_message?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['gmail_estimate_messages']['Insert']>;
+        Relationships: [];
+      };
+      gmail_estimate_files: {
+        Row: {
+          id: string;
+          message_id: string;
+          file_name: string;
+          file_sha256: string | null;
+          mime_type: string | null;
+          storage_path: string;
+          file_kind: 'quotation' | 'eml' | 'unsupported';
+          quotation_id: string | null;
+          import_job_id: string | null;
+          status: 'archived' | 'queued' | 'processed' | 'unsupported' | 'error';
+          error_message: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          message_id: string;
+          file_name: string;
+          file_sha256?: string | null;
+          mime_type?: string | null;
+          storage_path: string;
+          file_kind: Database['public']['Tables']['gmail_estimate_files']['Row']['file_kind'];
+          quotation_id?: string | null;
+          import_job_id?: string | null;
+          status?: Database['public']['Tables']['gmail_estimate_files']['Row']['status'];
+          error_message?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['gmail_estimate_files']['Insert']>;
+        Relationships: [
+          Rel & {
+            foreignKeyName: 'gmail_estimate_files_message_id_fkey';
+            columns: ['message_id'];
+            isOneToOne: false;
+            referencedRelation: 'gmail_estimate_messages';
+            referencedColumns: ['id'];
+          }
+        ];
+      };
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };
@@ -339,3 +437,5 @@ export type Leaflet = Database['public']['Tables']['leaflets']['Row'];
 export type AlertFlag = Database['public']['Tables']['alert_flags']['Row'];
 export type Job = Database['public']['Tables']['jobs']['Row'];
 export type AppSetting = Database['public']['Tables']['app_settings']['Row'];
+export type GmailEstimateMessage = Database['public']['Tables']['gmail_estimate_messages']['Row'];
+export type GmailEstimateFile = Database['public']['Tables']['gmail_estimate_files']['Row'];

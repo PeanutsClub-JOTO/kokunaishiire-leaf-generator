@@ -85,19 +85,24 @@ function productAreaClass(count: number): string {
   if (count <= 1) return 'single';
   if (count === 2) return 'assort-2';
   if (count === 3) return 'assort-3';
-  return 'assort-4';
+  if (count === 4) return 'assort-4';
+  return 'assort-5';
 }
 
-function buildPreviewHtml(tpl: string, product: MockProduct, overrides: Overrides, assortItems: MockProduct[] = [product]): string {
+function buildPreviewHtml(tpl: string, product: MockProduct, overrides: Overrides, assortItems: MockProduct[] = [product], itemOverridesMap: Record<string, Overrides> = {}): string {
   const leafName = overrides.leafName ?? product.leafName;
   const leadTime = overrides.leadTime ?? product.leadTime;
   const themeClass = overrides.themeClass === 'auto' ? detectTheme(leafName) : overrides.themeClass;
   const mainCopy = overrides.mainCopy || buildMainCopy(leafName);
   const productCode = overrides.productCode || product.productCode || '商品コード未設定';
-  const transform = `transform:translate(${overrides.imageX}px, ${overrides.imageY}px) scale(${overrides.imageScale / 100});`;
-  const images = assortItems.map((item) => item.imageUrl).filter(Boolean) as string[];
-  const imgHtml = images.length > 0
-    ? images.slice(0, 4).map((src) => `<div class="img-slot"><img src="${src}" alt="商品画像" loading="eager" style="${transform}" /></div>`).join('')
+  const imgHtml = assortItems.some((item) => item.imageUrl)
+    ? assortItems.map((item) => {
+        const ov = itemOverridesMap[item.id] ?? defaultOverrides(item);
+        const transform = `transform:translate(${ov.imageX}px, ${ov.imageY}px) scale(${ov.imageScale / 100});`;
+        return item.imageUrl
+          ? `<div class="img-slot"><img src="${item.imageUrl}" alt="商品画像" loading="eager" style="${transform}" /></div>`
+          : '<div class="img-slot"><div class="img-placeholder" style="width:100%;height:100%">画像未設定</div></div>';
+      }).join('')
     : '<div class="img-placeholder">商品画像未設定</div>';
   const itemCount = Math.max(assortItems.length, 1);
 
@@ -221,7 +226,8 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
   const [error, setError] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
   const [overridesMap, setOverridesMap] = useState<Record<string, Overrides>>({});
-  const [assortPartnerId, setAssortPartnerId] = useState<string | null>(null);
+  const [assortPartnerIds, setAssortPartnerIds] = useState<string[]>([]);
+  const [imageEditItemId, setImageEditItemId] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generatedPngUrl, setGeneratedPngUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<WorkbenchTab>('leaf');
@@ -247,7 +253,7 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
     setFileName('サンプル見積書.xlsx');
     setSelectedId(sample[0]?.id ?? null);
     setOverridesMap({});
-    setAssortPartnerId(null);
+    setAssortPartnerIds([]);
     setGeneratedPngUrl(null);
     setState('done');
   }, []);
@@ -256,8 +262,8 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
   const assortCandidates = selected
     ? products.filter((p) => canMockAssort(selected, p))
     : [];
-  const assortPartner = assortCandidates.find((p) => p.id === assortPartnerId) ?? null;
-  const assortItems = selected ? [selected, ...(assortPartner ? [assortPartner] : [])] : [];
+  const assortPartners = assortCandidates.filter((p) => assortPartnerIds.includes(p.id));
+  const assortItems = selected ? [selected, ...assortPartners] : [];
   const itemCount = Math.max(assortItems.length, 1);
   const overrides: Overrides = selected
     ? (overridesMap[selected.id] ?? defaultOverrides(selected))
@@ -281,12 +287,12 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
     const singleLeafName = selected.leafName;
     const singleMainCopy = buildMainCopy(selected.leafName);
 
-    if (assortPartner) {
-      const names = [selected.leafName, assortPartner.leafName];
+    if (assortPartners.length > 0) {
+      const names = [selected.leafName, ...assortPartners.map((p) => p.leafName)];
       const autoLeaf = buildAssortLeafName(names);
       const autoCopy = buildAssortMainCopy(names);
-      const updateLeaf = cur.leafName === singleLeafName;
-      const updateCopy = cur.mainCopy === singleMainCopy;
+      const updateLeaf = cur.leafName === singleLeafName || cur.leafName.includes('＆');
+      const updateCopy = cur.mainCopy === singleMainCopy || cur.mainCopy.includes('アソート') || cur.mainCopy.includes('＆');
       if (updateLeaf || updateCopy) {
         setOverridesMap((prev) => ({
           ...prev,
@@ -313,9 +319,23 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assortPartnerId, selectedId]);
+  }, [assortPartnerIds, selectedId]);
 
-  const previewHtml = selected ? buildPreviewHtml(templateHtml, selected, overrides, assortItems) : '';
+  const imageEditItem = assortItems.find((p) => p.id === imageEditItemId) ?? selected;
+  const imageEditOverrides: Overrides = imageEditItem
+    ? (overridesMap[imageEditItem.id] ?? defaultOverrides(imageEditItem))
+    : overrides;
+
+  function setImageEditOverride<K extends keyof Overrides>(key: K, value: Overrides[K]) {
+    if (!imageEditItem) return;
+    setOverridesMap((prev) => ({
+      ...prev,
+      [imageEditItem.id]: { ...(prev[imageEditItem.id] ?? defaultOverrides(imageEditItem)), [key]: value },
+    }));
+    setGeneratedPngUrl(null);
+  }
+
+  const previewHtml = selected ? buildPreviewHtml(templateHtml, selected, overrides, assortItems, overridesMap) : '';
 
   function setOverride<K extends keyof Overrides>(key: K, value: Overrides[K]) {
     if (!selected) return;
@@ -332,25 +352,29 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
 
   function handleSelectProduct(id: string) {
     setSelectedId(id);
-    setAssortPartnerId(null);
+    setAssortPartnerIds([]);
+    setImageEditItemId(null);
     setGeneratedPngUrl(null);
   }
 
   function handleSelectAssort(e: React.MouseEvent, id: string) {
     e.stopPropagation();
-    setAssortPartnerId((prev) => (prev === id ? null : id));
+    setAssortPartnerIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
     setGeneratedPngUrl(null);
   }
 
   function handleImageFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !selected) return;
+    const targetId = imageEditItemId ?? selected?.id;
+    if (!file || !targetId) return;
     const reader = new FileReader();
     reader.onload = () => {
       const imageUrl = typeof reader.result === 'string' ? reader.result : null;
       if (!imageUrl) return;
       setProducts((prev) =>
-        prev.map((p) => (p.id === selected.id ? { ...p, imageUrl } : p)),
+        prev.map((p) => (p.id === targetId ? { ...p, imageUrl } : p)),
       );
       setGeneratedPngUrl(null);
     };
@@ -358,21 +382,28 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
     e.target.value = '';
   }
 
-  const processFile = useCallback(async (file: File) => {
-    if (!file.name.match(/\.xlsx?$/i)) { setError('Excelファイル (.xlsx) を選択してください'); return; }
+  const processFiles = useCallback(async (files: File[]) => {
+    const validFiles = files.filter((f) => f.name.match(/\.xlsx?$/i));
+    if (validFiles.length === 0) { setError('Excelファイル (.xlsx) を選択してください'); return; }
     setError('');
     setState('uploading');
     try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch('/api/mock/upload', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error(await res.text());
-      const data: MockUploadResponse = await res.json();
-      setProducts(data.products);
-      setFileName(data.fileName);
-      setSelectedId(data.products[0]?.id ?? null);
+      const allProducts: MockProduct[] = [];
+      const fileNames: string[] = [];
+      for (const file of validFiles) {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch('/api/mock/upload', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error(await res.text());
+        const data: MockUploadResponse = await res.json();
+        allProducts.push(...data.products);
+        fileNames.push(data.fileName);
+      }
+      setProducts(allProducts);
+      setFileName(fileNames.join(' / '));
+      setSelectedId(allProducts[0]?.id ?? null);
       setOverridesMap({});
-      setAssortPartnerId(null);
+      setAssortPartnerIds([]);
       setGeneratedPngUrl(null);
       setState('done');
     } catch (e) {
@@ -383,21 +414,21 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setIsDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) processFile(file);
-  }, [processFile]);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) processFiles(files);
+  }, [processFiles]);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processFile(file);
-  }, [processFile]);
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) processFiles(files);
+  }, [processFiles]);
 
   async function handleGeneratePng() {
     if (!selected) return;
     setGenerating(true);
     setGeneratedPngUrl(null);
     try {
-      const body: MockGeneratePngRequest = { product: selected, overrides, html: previewHtml };
+      const body: MockGeneratePngRequest = { product: selected, overrides, assortItems };
       const res = await fetch('/api/mock/generate-png', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -439,8 +470,8 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
           >
             <div style={{ fontSize: 44, color: '#94a3b8', fontWeight: 800 }}>XLSX</div>
             <div style={{ fontSize: 16, fontWeight: 600, color: '#e2e8f0' }}>見積書をここにドロップ</div>
-            <div style={{ fontSize: 13, color: '#64748b' }}>または クリックしてファイルを選択</div>
-            <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>.xlsx 形式</div>
+            <div style={{ fontSize: 13, color: '#64748b' }}>または クリックしてファイルを選択（複数可）</div>
+            <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>.xlsx 形式 / 複数ファイル同時読み込み対応</div>
           </div>
         )}
 
@@ -453,7 +484,7 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
           </button>
         )}
 
-        <input ref={fileInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />
+        <input ref={fileInputRef} type="file" accept=".xlsx,.xls" multiple style={{ display: 'none' }} onChange={handleFileChange} />
         {error && <div style={{ color: '#f87171', fontSize: 13, background: '#450a0a', padding: '8px 16px', borderRadius: 8 }}>{error}</div>}
       </div>
     );
@@ -476,7 +507,7 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
           {products.map((p) => {
             const isSelected = p.id === (selectedId ?? products[0]?.id);
             const isAssortCandidate = canMockAssort(selected, p);
-            const isAssortSelected = assortPartner?.id === p.id;
+            const isAssortSelected = assortPartnerIds.includes(p.id);
             return (
               <div
                 key={p.id}
@@ -515,7 +546,15 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
           })}
         </div>
 
-        <div style={{ padding: '10px 12px', borderTop: '1px solid #334155' }}>
+        <div style={{ padding: '10px 12px', borderTop: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {assortPartnerIds.length > 0 && (
+            <button
+              onClick={() => { setAssortPartnerIds([]); setGeneratedPngUrl(null); }}
+              style={{ width: '100%', padding: '6px 0', background: '#083344', border: '1px solid #22d3ee', borderRadius: 8, color: '#cffafe', fontSize: 11, cursor: 'pointer', fontWeight: 700 }}
+            >
+              アソート解除（{assortPartnerIds.length}種選択中）
+            </button>
+          )}
           <button onClick={() => { setState('idle'); setProducts([]); setFileName(''); setGeneratedPngUrl(null); }} style={{ width: '100%', padding: '7px 0', background: '#334155', border: 'none', borderRadius: 8, color: '#94a3b8', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
             別のファイルを読み込む
           </button>
@@ -652,11 +691,30 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
 
             <div ref={imageSectionRef} style={{ background: '#0f172a', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>商品画像</div>
+
+              {/* アソート時: アイテム選択タブ */}
+              {assortItems.length > 1 && (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {assortItems.map((item, i) => {
+                    const isActive = (imageEditItemId ?? selected?.id) === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setImageEditItemId(item.id)}
+                        style={{ flex: 1, minWidth: 0, padding: '4px 6px', background: isActive ? '#312e81' : '#1e293b', border: `1px solid ${isActive ? '#6366f1' : '#334155'}`, borderRadius: 6, color: isActive ? '#c7d2fe' : '#94a3b8', fontSize: 10, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      >
+                        {i + 1}. {item.leafName.slice(0, 8)}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               <button
                 onClick={() => imageInputRef.current?.click()}
                 style={{ width: '100%', padding: '7px 0', background: '#164e63', border: '1px solid #22d3ee', borderRadius: 7, color: '#cffafe', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}
               >
-                画像を添付 / 差し替え
+                {assortItems.length > 1 ? `「${(imageEditItem?.leafName ?? '').slice(0, 10)}」の画像を差し替え` : '画像を添付 / 差し替え'}
               </button>
               <input
                 ref={imageInputRef}
@@ -669,9 +727,9 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
                 添付した画像はプレビューと生成画像に反映されます
               </div>
               {[
-                ['拡大率', 'imageScale', 70, 140, overrides.imageScale],
-                ['横位置', 'imageX', -120, 120, overrides.imageX],
-                ['縦位置', 'imageY', -100, 100, overrides.imageY],
+                ['拡大率', 'imageScale', 70, 200, imageEditOverrides.imageScale],
+                ['横位置', 'imageX', -200, 200, imageEditOverrides.imageX],
+                ['縦位置', 'imageY', -150, 150, imageEditOverrides.imageY],
               ].map(([label, key, min, max, value]) => (
                 <div key={String(key)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>
@@ -683,7 +741,7 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
                     min={Number(min)}
                     max={Number(max)}
                     value={Number(value)}
-                    onChange={(e) => setOverride(key as 'imageScale' | 'imageX' | 'imageY', Number(e.target.value))}
+                    onChange={(e) => setImageEditOverride(key as 'imageScale' | 'imageX' | 'imageY', Number(e.target.value))}
                     style={{ width: '100%' }}
                   />
                 </div>

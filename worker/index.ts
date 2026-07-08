@@ -10,7 +10,11 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../lib/supabase/types';
 import { handleImportXlsx, loadSettings, processRawSheets } from './handlers/import-xlsx';
 import { handleImportPdf } from './handlers/import-pdf';
+import { handleImportEml } from './handlers/import-eml';
+import { handleGmailScan } from './handlers/gmail-scan';
 import { handleRenderLeafletImage } from './handlers/render-leaflet-image';
+import { handleExportFinalLeafletToDrive } from './handlers/export-final-leaflet-to-drive';
+import { queueLeafletImageJobsForQuotation } from './handlers/queue-leaflet-images';
 import { startRendererServer } from './leaf-renderer/render';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -28,21 +32,50 @@ const supabase = createClient<Database>(SUPABASE_URL, SERVICE_KEY, {
 async function processJob(job: Database['public']['Tables']['jobs']['Row']): Promise<void> {
   console.log(`[worker] Job ${job.id} (${job.job_type}) 処理開始`);
 
-  await supabase
+  const { data: claimed, error: claimErr } = await supabase
     .from('jobs')
     .update({ status: 'running', started_at: new Date().toISOString() })
-    .eq('id', job.id);
+    .eq('id', job.id)
+    .eq('status', 'queued')
+    .select('id')
+    .maybeSingle();
+  if (claimErr) throw new Error(`Job claim failed: ${claimErr.message}`);
+  if (!claimed) {
+    console.log(`[worker] Job ${job.id} は他のワーカーが処理中のためスキップします`);
+    return;
+  }
 
   try {
     switch (job.job_type) {
       case 'import_xlsx':
         await handleImportXlsx(job, supabase);
+        if (job.quotation_id) {
+          const queued = await queueLeafletImageJobsForQuotation(supabase, job.quotation_id);
+          console.log(`[worker] リーフ画像生成ジョブを ${queued} 件キューしました`);
+        }
         break;
       case 'import_pdf':
         await handleImportPdf(job, supabase, false);
+        if (job.quotation_id) {
+          const queued = await queueLeafletImageJobsForQuotation(supabase, job.quotation_id);
+          console.log(`[worker] リーフ画像生成ジョブを ${queued} 件キューしました`);
+        }
         break;
       case 'import_image_pdf':
         await handleImportPdf(job, supabase, true);
+        if (job.quotation_id) {
+          const queued = await queueLeafletImageJobsForQuotation(supabase, job.quotation_id);
+          console.log(`[worker] リーフ画像生成ジョブを ${queued} 件キューしました`);
+        }
+        break;
+      case 'import_eml':
+        await handleImportEml(job, supabase);
+        break;
+      case 'gmail_scan':
+        await handleGmailScan(job, supabase);
+        break;
+      case 'gmail_ingest_message':
+        console.log('[worker] gmail_ingest_message は /api/gmail/ingest 側の処理に委譲します。');
         break;
       case 'import_gsheet': {
         if (!job.quotation_id) throw new Error('import_gsheet job has no quotation_id');
@@ -59,10 +92,15 @@ async function processJob(job: Database['public']['Tables']['jobs']['Row']): Pro
         const settings = await loadSettings(supabase);
         // GSheet も xlsx と同じパイプライン（グルーピング・サイジング・リーフ生成）
         await processRawSheets(supabase, job.quotation_id, result.sheets, settings);
+        const queued = await queueLeafletImageJobsForQuotation(supabase, job.quotation_id);
+        console.log(`[worker] リーフ画像生成ジョブを ${queued} 件キューしました`);
         break;
       }
       case 'render_leaflet_image':
         await handleRenderLeafletImage(job, supabase);
+        break;
+      case 'export_final_leaflet_to_drive':
+        await handleExportFinalLeafletToDrive(job, supabase);
         break;
       case 'generate_pdf':
         // PDFはAPI Route Handler経由でリクエストされるため、このワーカーでは扱わない

@@ -65,7 +65,7 @@ export function parseSalesPeriod(
 
 /**
  * 賞味期限残日数パーサ
- * "240日（240日）" / "90日" など先頭の数値を残日数として抽出
+ * "240日（240日）" / "90日" / "(240日)" など、最初に現れる数値を残日数として抽出
  */
 export function parseShelfLife(raw: string | null | undefined): {
   days: number;
@@ -80,7 +80,7 @@ export function parseShelfLife(raw: string | null | undefined): {
     String.fromCharCode(c.charCodeAt(0) - 0xfee0),
   );
 
-  const m = normalized.match(/^(\d+)/);
+  const m = normalized.match(/(\d+)/);
   if (!m) {
     return { days: 0, parseError: true };
   }

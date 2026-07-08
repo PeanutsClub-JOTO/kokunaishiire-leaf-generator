@@ -88,6 +88,15 @@ CREATE TABLE IF NOT EXISTS leaflets (
   template_version text,            -- 使用テンプレートバージョン
   render_status    text NOT NULL DEFAULT 'pending',  -- pending / rendering / done / error
   render_error     text,
+  finalized_at     timestamptz,
+  final_visible_until timestamptz,
+  drive_file_id    text,
+  drive_url        text,
+  drive_export_status text NOT NULL DEFAULT 'none'
+    CHECK (drive_export_status IN ('none', 'pending', 'exporting', 'done', 'error')),
+  drive_export_error text,
+  assort_followup_status text NOT NULL DEFAULT 'unasked'
+    CHECK (assort_followup_status IN ('unasked', 'not_needed', 'accepted', 'declined')),
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now()
 );
@@ -107,7 +116,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   quotation_id   uuid REFERENCES quotations(id) ON DELETE SET NULL,
   target_id      uuid,              -- 対象リーフIDなど（render_leaflet_imageで使用）
-  job_type       text NOT NULL CHECK (job_type IN ('import_xlsx', 'import_gsheet', 'import_pdf', 'import_image_pdf', 'generate_pdf', 'render_leaflet_image')),
+  job_type       text NOT NULL CHECK (job_type IN ('import_xlsx', 'import_gsheet', 'import_pdf', 'import_image_pdf', 'generate_pdf', 'render_leaflet_image', 'export_final_leaflet_to_drive')),
   status         text NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'done', 'error')),
   progress       int NOT NULL DEFAULT 0,
   error_message  text,

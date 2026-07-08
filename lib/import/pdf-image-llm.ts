@@ -1,7 +1,7 @@
 /**
  * 画像PDF/崩れ帳票 — Gemini構造化抽出 (仕様書 v2.1 §9c)
  *
- * JSON Schema を固定し、gemini-2.0-flash に画像（base64）+スキーマを渡して
+ * JSON Schema を固定し、LLM_MODEL に画像（base64）+スキーマを渡して
  * 商品情報を構造化抽出する。
  * 信頼度スコアが 0.7 未満の場合は low_extract_conf フラグを立てる。
  */

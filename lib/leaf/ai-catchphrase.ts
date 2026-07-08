@@ -1,9 +1,11 @@
 /**
  * Gemini を使ったキャッチコピー生成
  *
- * GEMINI_API_KEY が未設定の場合は null を返す → 呼び出し元がルールベースにフォールバック。
+ * GEMINI_API_KEY が未設定、または生成に失敗した場合は null を返す
+ * → 呼び出し元がルールベースにフォールバック。
  */
-import { fetchWithTimeout, timeoutMsFromEnv } from '../async/timeout';
+import { timeoutMsFromEnv, withTimeout } from '../async/timeout';
+import { getGeminiClient } from '../llm/gemini';
 
 export type Catchphrase = {
   main_copy: string;
@@ -30,56 +32,52 @@ export async function generateCatchphrase(data: {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
-  const assortContent =
-    data.itemCount >= 2 ? data.leafName.split('・').join('、') : '';
+  const isAssort = data.itemCount >= 2;
+  const assortNames = isAssort ? data.leafName.split(/[・＆&]/).map((s) => s.trim()).filter(Boolean) : [];
   const season = seasonFromLeadTime(data.leadTime ?? '');
 
-  const prompt = `以下の商品をゲームセンター景品向けリーフに掲載するためのキャッチコピーを作成してください。
+  const prompt = `あなたはゲームセンター景品の販促リーフレットのコピーライターです。
+以下の商品情報をもとに、思わず手が伸びるキャッチコピーを作成してください。
 
+【商品情報】
 商品名: ${data.leafName}
 カテゴリ: ${data.category}
 味・特徴: ${data.flavor || '（特記なし）'}
-アイテム数: ${data.itemCount}
-アソート内容: ${assortContent || '（単品）'}
+${isAssort ? `アソート内容（${data.itemCount}種）: ${assortNames.join('、')}` : ''}
 販売時期: ${season}
 備考: ${data.note?.trim() || '（なし）'}
 
-条件:
-- 2行以内
-- 1行あたり18文字前後
-- 営業が見て違和感のない表現
-- 景品としての分かりやすさを優先
-- 誇大表現は避ける
-- 「絶品」「最高級」「必ず売れる」など断定的すぎる表現は禁止
-- 商品名をそのまま長く繰り返さない
-- 味・種類・食べやすさ・見た目の分かりやすさを訴求する
-- 右上に大きく配置しても読みやすい短さにする
+【コピーの方針】
+- メインコピー: 20文字以内。インパクト重視。商品の一番の魅力を一言で。
+  - 味・食感・見た目・驚きなど、読んだ瞬間に「これ欲しい」と思わせる言葉を選ぶ
+  - 「！」「♪」など記号を1つ使ってもOK
+  - ${isAssort ? `${data.itemCount}種のアソートであることを自然に訴求する` : ''}
+- サブコピー: 30文字以内。メインを補完する具体的な説明。
+  - 食べ方・食感・シチュエーション・組み合わせの楽しさなど
+  - 景品としての「もらって嬉しい」感も意識する
 
-  出力はJSONのみ（コードブロック不要）:
-{"main_copy":"キャッチコピー","sub_copy":"補足コピー"}`;
+【禁止事項】
+- 「絶品」「最高級」「必ず売れる」など過度な断定表現
+- 商品名をそのまま長く繰り返す
+- 「〜です」「〜ます」で終わる堅い文体
+
+【良いコピーの例（参考）】
+- 「たまらん旨さ、${data.category}の新定番！」
+- 「${season === '夏' ? 'この夏イチオシ！' : ''}食べだしたら止まらない`
+  + (data.flavor ? `、${data.flavor}の` : 'の')
+  + `本格派」
+
+出力はJSONのみ（コードブロック不要）:
+{"main_copy":"メインコピー","sub_copy":"サブコピー"}`;
 
   try {
-    const res = await fetchWithTimeout(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.7, maxOutputTokens: 256 },
-        }),
-      },
+    const res = await withTimeout(
+      getGeminiClient().generate(prompt, { temperature: 0.9 }),
       timeoutMsFromEnv('AI_CATCHPHRASE_TIMEOUT_MS', 15_000),
       'Gemini catchphrase generation',
     );
 
-    if (!res.ok) return null;
-
-    const result = await res.json() as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const raw = result.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-    // コードブロックを除去してJSONをパース
+    const raw = res.text ?? '';
     const jsonStr = raw.replace(/```json?/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(jsonStr) as Catchphrase;
     if (!parsed.main_copy) return null;

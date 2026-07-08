@@ -40,12 +40,18 @@ export async function handleRenderLeafletImage(
       category,
       flavor,
       themeLabel: theme.label,
+      itemCount: leafData.itemCount,
+      productNames: leafData.productNames,
+      productImages: leafData.productImages,
     }),
   ]);
 
   const aiBgDataUrl = bgBuffer
     ? `data:image/png;base64,${bgBuffer.toString('base64')}`
     : null;
+  const renderWarning = bgBuffer
+    ? null
+    : 'AI背景生成に失敗、またはAPIキー未設定のため、通常背景で生成しました。';
 
   const png = await renderLeafImageBuffer({ ...leafData, catchphrase, aiBgDataUrl });
   const storagePath = `leaflets/${job.target_id}/${leafData.status}_${Date.now()}.png`;
@@ -74,7 +80,7 @@ export async function handleRenderLeafletImage(
     .update({
       leaf_image_url: urlData.publicUrl,
       render_status: 'done',
-      render_error: null,
+      render_error: renderWarning,
       template_version: 'leaf-image-v1',
     })
     .eq('id', job.target_id);

@@ -38,6 +38,16 @@ function firstNote(items: ItemRef[]): string | null {
     .find((note): note is string => Boolean(note?.trim())) ?? null;
 }
 
+function productNames(items: ItemRef[]): string[] {
+  return Array.from(
+    new Set(
+      items
+        .map((item) => pickProduct(item.products)?.product_name)
+        .filter((name): name is string => Boolean(name?.trim())),
+    ),
+  );
+}
+
 async function loadLeafletBase(
   supabase: SupabaseClient<Database>,
   leafletId: string,
@@ -137,6 +147,7 @@ export async function loadLeafletImageData(
     pieceSize: leaflet.piece_size ?? firstProduct?.piece_size ?? null,
     // リーフ単位のセールスコピー(note)を最優先。未設定なら商品noteにフォールバック。
     note: leaflet.note ?? firstNote(items),
+    productNames: productNames(items),
     productImages: uniqueImages(items),
     flagMessages,
   };

@@ -169,10 +169,10 @@ export default async function AssortPage({ params }: PageProps) {
                   ))}
                   {leaflet && (
                     <Link
-                      href={`/quotations/${id}/leaflets/${group.id}`}
+                      href={`/quotations/${id}/leaflets`}
                       className="text-xs text-indigo-600 hover:underline"
                     >
-                      リーフ →
+                      リーフ編集 →
                     </Link>
                   )}
                 </div>

@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { sizeAssortV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
 
@@ -33,6 +33,13 @@ export type WorkbenchLeaflet = {
   shelfLifeDays: number | null;
   leafImageUrl: string | null;
   renderStatus: string;
+  renderError: string | null;
+  finalizedAt: string | null;
+  finalVisibleUntil: string | null;
+  driveUrl: string | null;
+  driveExportStatus: string;
+  driveExportError: string | null;
+  assortFollowupStatus: string;
   note: string | null;
   items: WorkbenchItem[];
 };
@@ -177,6 +184,15 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const hasPendingAutoImages = leaflets.some(
+    (l) => !l.leafImageUrl && l.renderStatus !== 'error',
+  );
+
+  useEffect(() => {
+    if (!hasPendingAutoImages) return;
+    const timer = window.setInterval(() => router.refresh(), 5000);
+    return () => window.clearInterval(timer);
+  }, [hasPendingAutoImages, router]);
 
   const selected = leaflets.find((l) => l.id === selectedId) ?? leaflets[0];
   const edit = edits[selected.id];
@@ -207,6 +223,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     [sel, productById],
   );
   const isAssort = editedItems.length > 1;
+  const isTemporaryAssort = isAssort && selected.items.length === 1;
   const sizing = useMemo(() => calcSizing(editedItems, sizingSettings), [editedItems, sizingSettings]);
   const leafForPreview = useMemo<WorkbenchLeaflet>(
     () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, isSingle: !isAssort }),
@@ -285,11 +302,40 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     }
   }
 
-  async function handleGenerateImage() {
+  async function handleFinalize() {
     setSaving(true);
-    setMessage('画像生成をリクエストしました（ワーカー処理）');
+    setMessage('');
     try {
-      await fetch(`/api/leaflets/${selected.id}/image`, { method: 'POST' });
+      let followup: 'not_needed' | 'accepted' | 'declined' = 'not_needed';
+      if (!isAssort && compatItems.length > 0) {
+        followup = window.confirm(
+          'この商品は他の商品とアソートできる可能性があります。\n\nOK: 確定後もアソート企画を検討する\nキャンセル: 今回は単品確定のみ',
+        ) ? 'accepted' : 'declined';
+      }
+
+      const res = await fetch(`/api/leaflets/${selected.id}/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leaf_name: edit.leafName,
+          lead_time: edit.leadTime,
+          note: edit.note,
+          assort_followup_status: followup,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error ?? '確定に失敗しました');
+        return;
+      }
+      setMessage(
+        followup === 'accepted'
+          ? '確定しました。Drive転送を開始します。必要に応じて右の候補からアソートも作成できます。'
+          : '確定しました。Drive転送を開始します。',
+      );
+      router.refresh();
+    } catch {
+      setMessage('確定に失敗しました');
     } finally {
       setSaving(false);
     }
@@ -322,6 +368,16 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
                 </span>
                 <span>単価{fmt(l.unitPrice)}円</span>
               </div>
+              {l.renderError && (
+                <div className="mt-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                  AI背景は通常背景で代替
+                </div>
+              )}
+              {l.status === 'final' && (
+                <div className="mt-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                  確定済み
+                </div>
+              )}
             </button>
           );
         })}
@@ -330,6 +386,11 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       {/* 中央: ライブプレビュー */}
       <main className="flex-1 overflow-auto bg-zinc-100 p-6">
         <div className="mx-auto" style={{ width: 770 }}>
+          {hasPendingAutoImages && (
+            <div className="mb-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+              見積取込後のリーフ画像を自動生成中です。完了するとこの画面に順次反映されます。
+            </div>
+          )}
           <div className="overflow-hidden rounded-lg shadow-lg" style={{ width: 770, height: 485 }}>
             <iframe
               title="leaf-preview"
@@ -340,6 +401,11 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           {!sizing.ok && (
             <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
               この構成は企画対象外です（{sizing.reason === 'unit_over' ? '卸価格÷入数が1,000円超' : sizing.reason === 'cost_over' ? '1ロットが33,000円超' : sizing.reason}）。比率を調整してください。
+            </div>
+          )}
+          {selected.renderError && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              {selected.renderError}
             </div>
           )}
         </div>
@@ -434,27 +500,76 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           <Row label="入数" value={`${fmt(sizing.leafQty)}個`} />
           <Row label="卸価格" value={`${fmt(sizing.wholesale)}円`} />
           <Row label="ハーフ" value={sizing.isHalfOk ? '可' : '不可'} />
+          <Row
+            label="Drive"
+            value={
+              selected.driveExportStatus === 'done'
+                ? '転送済み'
+                : selected.driveExportStatus === 'error'
+                  ? 'エラー'
+                  : selected.driveExportStatus === 'pending' || selected.driveExportStatus === 'exporting'
+                    ? '転送中'
+                    : '未確定'
+            }
+            warn={selected.driveExportStatus === 'error'}
+          />
         </div>
+        {selected.driveExportError && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+            Drive転送エラー: {selected.driveExportError}
+          </p>
+        )}
+        {selected.driveUrl && (
+          <a
+            href={selected.driveUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+          >
+            Google Driveの確定リーフを開く →
+          </a>
+        )}
 
         <div className="flex flex-col gap-2 pt-1">
-          {isAssort ? (
-            // アソート選択中: 作成＋画像生成を一括
+          {isTemporaryAssort ? (
+            // 単品から一時的にアソート選択中: 作成＋画像生成を一括
             <button onClick={handleCreateAssort} disabled={saving || !sizing.ok}
               className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
               {saving ? '処理中…' : 'この組み合わせでアソート作成＋画像生成'}
             </button>
           ) : (
-            // 単品: 情報保存 と 画像生成を分離
+            // 単品/作成済みアソート: 情報保存。画像生成は自動または作成時に実行
             <>
               <button onClick={handleSave} disabled={saving}
                 className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
                 {saving ? '処理中…' : '情報を保存'}
               </button>
-              <button onClick={handleGenerateImage} disabled={saving || !sizing.ok}
-                className="rounded-lg border border-indigo-300 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
-                リーフ画像を生成
-              </button>
+              <p className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+                リーフ画像は見積取込後またはアソート作成時に生成されます。修正内容は保存後、次回の再生成で反映されます。
+              </p>
             </>
+          )}
+          {selected.status === 'final' ? (
+            <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+              確定済み。確定リーフ一覧に3日間表示されます。
+            </div>
+          ) : isTemporaryAssort ? (
+            <p className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+              先に「この組み合わせでアソート作成＋画像生成」を押すと、作成されたアソートリーフを確定できます。
+            </p>
+          ) : (
+            <button onClick={handleFinalize} disabled={saving || !selected.leafImageUrl || !sizing.ok}
+              className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+              企画確定してDriveへ送る
+            </button>
+          )}
+          {!selected.leafImageUrl && (
+            <p className="text-[10px] text-zinc-400">リーフ画像が生成されると確定できます。</p>
+          )}
+          {!isAssort && selected.status !== 'final' && compatItems.length > 0 && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-[10px] text-amber-700">
+              確定時に、この商品を他の商品でアソートするか確認します。
+            </p>
           )}
           {message && <p className="text-xs text-zinc-500">{message}</p>}
         </div>

@@ -39,6 +39,8 @@ export type MockGeneratePngRequest = {
   product: MockProduct;
   overrides: MockImageOverrides;
   html?: string;
+  /** アソート構成商品（メイン商品を含む） */
+  assortItems?: MockProduct[];
 };
 
 export function calcMockSingle(cost: number, minLotQty: number): Pick<

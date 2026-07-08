@@ -44,6 +44,12 @@ export default async function QuotationsPage() {
             <h1 className="text-lg font-bold text-zinc-900">企画業務自動化システム</h1>
             <p className="text-xs text-zinc-500 mt-0.5">ピーナッツクラブ 国内仕入部</p>
           </div>
+          <Link
+            href="/final-leaflets"
+            className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
+          >
+            確定リーフ
+          </Link>
         </div>
       </header>
 

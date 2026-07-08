@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { calcMockSingle, canMockAssort, type MockProduct } from './workbench';
 
 function product(overrides: Partial<MockProduct> & { id: string }): MockProduct {
+  const { id, ...rest } = overrides;
   return {
-    id: overrides.id,
+    id,
     no: null,
     sheetName: 'test',
     leafName: overrides.leafName ?? 'テスト商品',
@@ -17,7 +18,7 @@ function product(overrides: Partial<MockProduct> & { id: string }): MockProduct 
     leadTime: '受注後約1週間',
     note: null,
     imageUrl: null,
-    ...overrides,
+    ...rest,
   };
 }
 

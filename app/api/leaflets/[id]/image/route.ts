@@ -28,6 +28,22 @@ export async function POST(
     .update({ render_status: 'pending', render_error: null })
     .eq('id', id);
 
+  const { data: existingJob, error: existingErr } = await supabase
+    .from('jobs')
+    .select('id, status')
+    .eq('job_type', 'render_leaflet_image')
+    .eq('target_id', id)
+    .in('status', ['queued', 'running'])
+    .limit(1)
+    .maybeSingle();
+
+  if (existingErr) {
+    return NextResponse.json({ error: existingErr.message }, { status: 500 });
+  }
+  if (existingJob) {
+    return NextResponse.json({ job_id: existingJob.id, status: existingJob.status, deduped: true });
+  }
+
   const { data: job, error } = await supabase
     .from('jobs')
     .insert({

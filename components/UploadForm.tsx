@@ -52,7 +52,7 @@ export default function UploadForm() {
 
       if (job.status === 'done') {
         setStatus('done');
-        setMessage('取込完了！リーフ編集画面へ移動します...');
+        setMessage('取込完了。リーフ画像を自動生成中です。確認画面へ移動します...');
         router.push(`/quotations/${qId}/leaflets`);
         return;
       }
