@@ -244,7 +244,8 @@ export function buildLeafImageHtml(
     : '';
 
   const { areaClass, imagesHtml } = buildProductImagesHtml(data.productImages);
-  const salesCopy = cleanText(data.note);
+  // ユーザー入力のセールスコピー(note)を最優先、無ければAI生成サブコピー
+  const salesCopy = cleanText(data.note) || cleanText(data.catchphrase?.sub_copy);
 
   return templateHtml
     .replaceAll('{{FONT_URL}}', fontUrl)
