@@ -100,6 +100,9 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
       note: leaf.note ?? null,
       imageOverrides: (leaf.image_overrides ?? null) as Record<string, { scale?: number; x?: number; y?: number }> | null,
       mainCopyOverride: leaf.main_copy_override ?? null,
+      aiMainCopy: leaf.ai_main_copy ?? null,
+      aiSubCopy: leaf.ai_sub_copy ?? null,
+      productCode: leaf.product_code ?? null,
       items: items.map((it) => {
         const p = Array.isArray(it.products) ? it.products[0] : it.products;
         return {

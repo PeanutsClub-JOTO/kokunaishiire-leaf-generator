@@ -160,6 +160,10 @@ export async function loadLeafletImageData(
     // リーフ単位のセールスコピー(note)を最優先。未設定なら商品noteにフォールバック。
     note: leaflet.note ?? firstNote(items),
     mainCopyOverride: leaflet.main_copy_override ?? null,
+    // 保存済みAIコピー。レンダリング時に新規生成が失敗したらこれを使う
+    catchphrase: leaflet.ai_main_copy
+      ? { main_copy: leaflet.ai_main_copy, sub_copy: leaflet.ai_sub_copy ?? '' }
+      : null,
     productNames: productNames(items),
     productImages: uniqueImages(items, parseImageOverrides(leaflet.image_overrides)),
     flagMessages,

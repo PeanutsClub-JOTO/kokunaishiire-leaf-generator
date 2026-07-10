@@ -10,7 +10,7 @@ import type { Database } from '@/lib/supabase/types';
 import { sanitizeDriveFileName, uploadImageUrlToDrive } from '@/lib/google/drive-export';
 
 type FinalizeBody = {
-  product_code?: string;
+  product_code?: string | null;
   pj_no?: string;
   leaf_name?: string;
   lead_time?: string;

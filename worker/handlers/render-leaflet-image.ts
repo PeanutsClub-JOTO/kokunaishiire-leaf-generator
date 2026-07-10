@@ -26,7 +26,7 @@ export async function handleRenderLeafletImage(
   const category = detectCategory(leafData.leafName);
   const flavor = flavorOf(leafData.leafName);
 
-  const [catchphrase, bgBuffer] = await Promise.all([
+  const [freshCatchphrase, bgBuffer] = await Promise.all([
     generateCatchphrase({
       leafName: leafData.leafName,
       category,
@@ -46,6 +46,16 @@ export async function handleRenderLeafletImage(
       productImages: leafData.productImages.map((p) => (typeof p === 'string' ? p : p.url)),
     }),
   ]);
+
+  // 新規生成に成功したらDBへ保存（ワークベンチの編集欄初期値になる）。
+  // 失敗時は前回保存分（loadLeafletImageDataがcatchphraseに載せてくる）を使う。
+  const catchphrase = freshCatchphrase ?? leafData.catchphrase ?? null;
+  if (freshCatchphrase) {
+    await supabase
+      .from('leaflets')
+      .update({ ai_main_copy: freshCatchphrase.main_copy, ai_sub_copy: freshCatchphrase.sub_copy })
+      .eq('id', job.target_id);
+  }
 
   const aiBgDataUrl = bgBuffer
     ? `data:image/png;base64,${bgBuffer.toString('base64')}`

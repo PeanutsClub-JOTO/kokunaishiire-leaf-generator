@@ -229,6 +229,8 @@ export type Database = {
           assort_followup_status: 'unasked' | 'not_needed' | 'accepted' | 'declined';
           image_overrides: Json | null;
           main_copy_override: string | null;
+          ai_main_copy: string | null;
+          ai_sub_copy: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -265,6 +267,8 @@ export type Database = {
           assort_followup_status?: 'unasked' | 'not_needed' | 'accepted' | 'declined';
           image_overrides?: Json | null;
           main_copy_override?: string | null;
+          ai_main_copy?: string | null;
+          ai_sub_copy?: string | null;
           created_at?: string;
           updated_at?: string;
         };

@@ -39,7 +39,7 @@ export async function PATCH(
   const { id } = await params;
 
   const body = await req.json() as {
-    product_code?: string;
+    product_code?: string | null;
     pj_no?: string;
     status?: 'draft' | 'final';
     leaf_name?: string;

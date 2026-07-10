@@ -44,6 +44,12 @@ export type WorkbenchLeaflet = {
   note: string | null;
   /** ワークベンチで手動編集したキャッチコピー（AIより優先） */
   mainCopyOverride: string | null;
+  /** AI生成キャッチコピー（編集欄の初期値） */
+  aiMainCopy: string | null;
+  /** AI生成セールスコピー（編集欄の初期値） */
+  aiSubCopy: string | null;
+  /** 商品コード */
+  productCode: string | null;
   /** { [productId]: { scale, x, y } } 商品画像の拡大率・位置調整 */
   imageOverrides: Record<string, { scale?: number; x?: number; y?: number }> | null;
   items: WorkbenchItem[];
@@ -185,7 +191,7 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
     .replaceAll('{{DRAFT_CLASS}}', '')
     .replaceAll('{{STATUS_LABEL}}', '')
     .replaceAll('{{STATUS_NOTE}}', '')
-    .replaceAll('{{PRODUCT_CODE}}', '')
+    .replaceAll('{{PRODUCT_CODE}}', esc(leaf.productCode?.trim() || '商品コード未設定'))
     .replaceAll('{{LEAF_NAME}}', esc(leaf.leafName || leafName))
     .replaceAll('{{ITEM_COUNT}}', fmt(items.length))
     .replaceAll('{{LEAF_QTY}}', fmt(sizing.leafQty))
@@ -205,8 +211,15 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   const sizingSettings = settings ?? DEFAULT_SETTINGS;
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(leaflets[0]?.id ?? '');
-  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string; mainCopy: string }>>(() =>
-    Object.fromEntries(leaflets.map((l) => [l.id, { leafName: l.leafName, leadTime: l.leadTime, note: l.note ?? '', mainCopy: l.mainCopyOverride ?? '' }])),
+  // キャッチ/セールスコピーは AI生成文を初期値として編集欄に出す（自由に修正→保存できる）
+  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string }>>(() =>
+    Object.fromEntries(leaflets.map((l) => [l.id, {
+      leafName: l.leafName,
+      leadTime: l.leadTime,
+      note: l.note ?? l.aiSubCopy ?? '',
+      mainCopy: l.mainCopyOverride ?? l.aiMainCopy ?? '',
+      productCode: l.productCode ?? '',
+    }])),
   );
   // アソート選択: ベースリーフID → { productId: ratio }（ベース商品を必ず含む）
   const [assortSel, setAssortSel] = useState<Record<string, Record<string, number>>>(() =>
@@ -276,7 +289,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   const isTemporaryAssort = isAssort && selected.items.length === 1;
   const sizing = useMemo(() => calcSizing(editedItems, sizingSettings), [editedItems, sizingSettings]);
   const leafForPreview = useMemo<WorkbenchLeaflet>(
-    () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, isSingle: !isAssort }),
+    () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, productCode: edit.productCode, isSingle: !isAssort }),
     [selected, edit, isAssort],
   );
   const imgOv = useMemo<Record<string, ImgOv>>(() => imgOvMap[selected.id] ?? {}, [imgOvMap, selected.id]);
@@ -300,7 +313,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     return out;
   }
 
-  function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string; mainCopy: string }>) {
+  function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string }>) {
     setEdits((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], ...patch } }));
   }
   function setImgOv(productId: string, patch: Partial<ImgOv>) {
@@ -359,6 +372,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           leaf_name: edit.leafName,
           lead_time: edit.leadTime,
           note: edit.note,
+          product_code: edit.productCode.trim() || null,
           main_copy_override: edit.mainCopy.trim() || null,
           image_overrides: buildOverridesPayload(),
         }),
@@ -459,6 +473,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           leaf_name: edit.leafName,
           lead_time: edit.leadTime,
           note: edit.note,
+          product_code: edit.productCode.trim() || null,
           main_copy_override: edit.mainCopy.trim() || null,
           assort_followup_status: followup,
         }),
@@ -566,6 +581,15 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       {/* 右: 編集パネル */}
       <aside className="w-80 shrink-0 overflow-y-auto border-l border-zinc-200 bg-white p-4 space-y-4">
         <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-1">商品コード</label>
+          <input
+            value={edit.productCode}
+            onChange={(e) => patchEdit({ productCode: e.target.value })}
+            placeholder="例: AB-1234（末尾$=直送）"
+            className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          />
+        </div>
+        <div>
           <label className="block text-xs font-medium text-zinc-500 mb-1">掲載品名</label>
           <textarea
             value={edit.leafName}
@@ -583,7 +607,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             placeholder={mainCopy(editedItems)}
             className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
           />
-          <p className="mt-0.5 text-[10px] text-zinc-400">改行で2行にできます。空欄時はGeminiが自動生成し、それも失敗したらルールベース。</p>
+          <p className="mt-0.5 text-[10px] text-zinc-400">AIが生成した文章が初期表示されます。自由に修正OK。空欄で保存すると次回の再生成でAIが作り直します。</p>
         </div>
         <div>
           <label className="block text-xs font-medium text-zinc-500 mb-1">セールスコピー（空欄ならAI/自動生成）</label>
@@ -641,7 +665,10 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
                 <div key={it.productId} className="text-xs">
                   <div className="flex justify-between text-zinc-600 mb-0.5">
                     <span className="truncate pr-2">{it.productName}</span>
-                    <span className="font-medium">×{it.ratio}</span>
+                    <span className="shrink-0">
+                      <span className="text-zinc-400 mr-2">単価{fmt(it.cost)}円</span>
+                      <span className="font-medium">×{it.ratio}</span>
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -713,6 +740,10 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
 
         {/* 計算結果（ライブ） */}
         <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3 text-sm space-y-1">
+          <Row
+            label={isAssort ? '仕入原価（構成1組）' : '仕入単価（元単価）'}
+            value={`${fmt(sizing.setCost)}円`}
+          />
           <Row label="単価" value={`${fmt(sizing.unitPrice)}円`} warn={sizing.unitPrice > sizingSettings.unitPriceCap} />
           <Row label="入数" value={`${fmt(sizing.leafQty)}個`} />
           <Row label="卸価格" value={`${fmt(sizing.wholesale)}円`} />
