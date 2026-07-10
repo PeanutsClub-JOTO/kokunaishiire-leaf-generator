@@ -215,6 +215,7 @@ export type Database = {
           status: 'draft' | 'final';
           pdf_url: string | null;
           leaf_image_url: string | null;
+          ai_background_url: string | null;
           leaf_pdf_url: string | null;
           template_version: string | null;
           render_status: string;
@@ -249,6 +250,7 @@ export type Database = {
           status?: 'draft' | 'final';
           pdf_url?: string | null;
           leaf_image_url?: string | null;
+          ai_background_url?: string | null;
           leaf_pdf_url?: string | null;
           template_version?: string | null;
           render_status?: string;

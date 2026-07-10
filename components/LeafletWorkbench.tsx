@@ -32,6 +32,7 @@ export type WorkbenchLeaflet = {
   leadTime: string;
   shelfLifeDays: number | null;
   leafImageUrl: string | null;
+  aiBackgroundUrl: string | null;
   renderStatus: string;
   renderError: string | null;
   finalizedAt: string | null;
@@ -164,9 +165,12 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
     ? `<div class="assort-grid">${imgs.slice(0, 4).map((s) => `<img src="${esc(s)}" alt="" />`).join('')}</div>`
     : imgs[0] ? `<img class="hero-image" src="${esc(imgs[0])}" alt="" />` : '<div class="image-placeholder">商品画像未設定</div>';
   const pieceSize = items[0]?.pieceSize ?? null;
+  const aiBgStyle = leaf.aiBackgroundUrl
+    ? `background-image:url('${esc(leaf.aiBackgroundUrl)}');background-size:cover;background-position:center;opacity:0.92;`
+    : '';
   return tpl
     .replaceAll('{{FONT_URL}}', '')
-    .replaceAll('{{AI_BG_STYLE}}', '') // ライブプレビューはCSSテーマのみ
+    .replaceAll('{{AI_BG_STYLE}}', aiBgStyle)
     .replaceAll('{{THEME_CLASS}}', theme.cls)
     .replaceAll('{{THEME_LABEL}}', esc(theme.label))
     .replaceAll('{{MAIN_COPY}}', esc(mainCopy(items)))
@@ -199,7 +203,6 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   const sizingSettings = settings ?? DEFAULT_SETTINGS;
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(leaflets[0]?.id ?? '');
-  const [previewMode, setPreviewMode] = useState<'image' | 'edit'>('image');
   const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string }>>(() =>
     Object.fromEntries(leaflets.map((l) => [l.id, { leafName: l.leafName, leadTime: l.leadTime, note: l.note ?? '' }])),
   );
@@ -238,10 +241,6 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     const timer = window.setInterval(() => router.refresh(), 5000);
     return () => window.clearInterval(timer);
   }, [hasPendingAutoImages, hasPendingDriveExport, router]);
-
-  useEffect(() => {
-    setPreviewMode('image');
-  }, [selectedId]);
 
   const selected = leaflets.find((l) => l.id === selectedId) ?? leaflets[0];
   const edit = edits[selected.id];
@@ -283,7 +282,6 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     () => buildHtml(templateHtml, leafForPreview, editedItems, sizing, imgOv),
     [templateHtml, leafForPreview, editedItems, sizing, imgOv],
   );
-  const showSavedImagePreview = Boolean(selected.leafImageUrl) && previewMode === 'image';
 
   // 画像調整の対象商品（アソート時はタブで選択、単品は先頭）
   const imgEditTargets = editedItems.filter((it) => it.imageUrl);
@@ -301,11 +299,9 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   }
 
   function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string }>) {
-    setPreviewMode('edit');
     setEdits((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], ...patch } }));
   }
   function setImgOv(productId: string, patch: Partial<ImgOv>) {
-    setPreviewMode('edit');
     setImgOvMap((prev) => {
       const cur = prev[selected.id] ?? {};
       const base = cur[productId] ?? DEFAULT_IMG_OV;
@@ -313,11 +309,9 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     });
   }
   function setRatio(productId: string, ratio: number) {
-    setPreviewMode('edit');
     setAssortSel((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], [productId]: ratio } }));
   }
   function toggleCompat(item: WorkbenchItem, on: boolean) {
-    setPreviewMode('edit');
     setAssortSel((prev) => {
       const cur = { ...prev[selected.id] };
       if (on) cur[item.productId] = 1;
@@ -383,7 +377,6 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       if (imageData.job_id) {
         const completed = await waitForJob(imageData.job_id, 'リーフ画像を再生成');
         if (completed) {
-          setPreviewMode('image');
           setMessage('リーフ画像を更新しました。');
         } else {
           setMessage('リーフ画像の再生成を受け付けました。まだ処理中なので、少し後に画面を更新してください。');
@@ -532,48 +525,16 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
               見積取込後のリーフ画像を自動生成中です。完了するとこの画面に順次反映されます。
             </div>
           )}
-          {selected.leafImageUrl && (
-            <div className="mb-2 flex rounded-lg border border-zinc-200 bg-white p-1 text-xs font-medium shadow-sm">
-              <button
-                type="button"
-                onClick={() => setPreviewMode('image')}
-                className={`flex-1 rounded-md px-3 py-1.5 ${previewMode === 'image' ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100'}`}
-              >
-                生成画像
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewMode('edit')}
-                className={`flex-1 rounded-md px-3 py-1.5 ${previewMode === 'edit' ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100'}`}
-              >
-                編集プレビュー
-              </button>
-            </div>
-          )}
           <div className="overflow-hidden rounded-lg shadow-lg" style={{ width: 770, height: 485 }}>
-            {showSavedImagePreview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={selected.leafImageUrl as string}
-                alt=""
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <iframe
-                title="leaf-preview"
-                srcDoc={previewHtml}
-                style={{ width: 1540, height: 970, border: 0, transform: 'scale(0.5)', transformOrigin: 'top left' }}
-              />
-            )}
+            <iframe
+              title="leaf-preview"
+              srcDoc={previewHtml}
+              style={{ width: 1540, height: 970, border: 0, transform: 'scale(0.5)', transformOrigin: 'top left' }}
+            />
           </div>
-          {showSavedImagePreview && (
-            <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-              左の一覧と同じ生成済みリーフ画像を表示中です。
-            </div>
-          )}
-          {selected.leafImageUrl && previewMode === 'edit' && (
+          {selected.aiBackgroundUrl && (
             <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
-              編集プレビューを表示中です。「情報を保存」で生成画像を更新します。
+              AI生成背景を使った編集プレビューを表示中です。「情報を保存」で生成画像を更新します。
             </div>
           )}
           {!sizing.ok && (
