@@ -193,6 +193,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   const sizingSettings = settings ?? DEFAULT_SETTINGS;
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(leaflets[0]?.id ?? '');
+  const [previewMode, setPreviewMode] = useState<'image' | 'edit'>('image');
   const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string }>>(() =>
     Object.fromEntries(leaflets.map((l) => [l.id, { leafName: l.leafName, leadTime: l.leadTime, note: l.note ?? '' }])),
   );
@@ -230,6 +231,10 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     const timer = window.setInterval(() => router.refresh(), 5000);
     return () => window.clearInterval(timer);
   }, [hasPendingAutoImages, router]);
+
+  useEffect(() => {
+    setPreviewMode('image');
+  }, [selectedId]);
 
   const selected = leaflets.find((l) => l.id === selectedId) ?? leaflets[0];
   const edit = edits[selected.id];
@@ -271,6 +276,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     () => buildHtml(templateHtml, leafForPreview, editedItems, sizing, imgOv),
     [templateHtml, leafForPreview, editedItems, sizing, imgOv],
   );
+  const showSavedImagePreview = Boolean(selected.leafImageUrl) && previewMode === 'image';
 
   // 画像調整の対象商品（アソート時はタブで選択、単品は先頭）
   const imgEditTargets = editedItems.filter((it) => it.imageUrl);
@@ -288,9 +294,11 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   }
 
   function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string }>) {
+    setPreviewMode('edit');
     setEdits((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], ...patch } }));
   }
   function setImgOv(productId: string, patch: Partial<ImgOv>) {
+    setPreviewMode('edit');
     setImgOvMap((prev) => {
       const cur = prev[selected.id] ?? {};
       const base = cur[productId] ?? DEFAULT_IMG_OV;
@@ -298,9 +306,11 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     });
   }
   function setRatio(productId: string, ratio: number) {
+    setPreviewMode('edit');
     setAssortSel((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], [productId]: ratio } }));
   }
   function toggleCompat(item: WorkbenchItem, on: boolean) {
+    setPreviewMode('edit');
     setAssortSel((prev) => {
       const cur = { ...prev[selected.id] };
       if (on) cur[item.productId] = 1;
@@ -466,13 +476,50 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
               見積取込後のリーフ画像を自動生成中です。完了するとこの画面に順次反映されます。
             </div>
           )}
+          {selected.leafImageUrl && (
+            <div className="mb-2 flex rounded-lg border border-zinc-200 bg-white p-1 text-xs font-medium shadow-sm">
+              <button
+                type="button"
+                onClick={() => setPreviewMode('image')}
+                className={`flex-1 rounded-md px-3 py-1.5 ${previewMode === 'image' ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100'}`}
+              >
+                生成画像
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewMode('edit')}
+                className={`flex-1 rounded-md px-3 py-1.5 ${previewMode === 'edit' ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100'}`}
+              >
+                編集プレビュー
+              </button>
+            </div>
+          )}
           <div className="overflow-hidden rounded-lg shadow-lg" style={{ width: 770, height: 485 }}>
-            <iframe
-              title="leaf-preview"
-              srcDoc={previewHtml}
-              style={{ width: 1540, height: 970, border: 0, transform: 'scale(0.5)', transformOrigin: 'top left' }}
-            />
+            {showSavedImagePreview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={selected.leafImageUrl as string}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <iframe
+                title="leaf-preview"
+                srcDoc={previewHtml}
+                style={{ width: 1540, height: 970, border: 0, transform: 'scale(0.5)', transformOrigin: 'top left' }}
+              />
+            )}
           </div>
+          {showSavedImagePreview && (
+            <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+              左の一覧と同じ生成済みリーフ画像を表示中です。
+            </div>
+          )}
+          {selected.leafImageUrl && previewMode === 'edit' && (
+            <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+              編集プレビューを表示中です。「情報を保存」で生成画像を更新します。
+            </div>
+          )}
           {!sizing.ok && (
             <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
               この構成は企画対象外です（{sizing.reason === 'unit_over' ? '卸価格÷入数が1,000円超' : sizing.reason === 'cost_over' ? '1ロットが33,000円超' : sizing.reason}）。比率を調整してください。
@@ -619,7 +666,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
                 </div>
               ))}
             </div>
-            <p className="mt-2 text-[10px] text-zinc-400">プレビューに即反映。「情報を保存」で生成画像にも反映されます。</p>
+            <p className="mt-2 text-[10px] text-zinc-400">「情報を保存」で調整内容を反映した画像を再生成します。</p>
           </div>
         )}
 
