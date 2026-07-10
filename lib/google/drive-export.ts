@@ -11,6 +11,12 @@ function getDriveAuth() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
+  console.log('[drive-env]', {
+    email: Boolean(email),
+    privateKey: Boolean(key),
+    folderId: Boolean(process.env.GOOGLE_DRIVE_FINAL_LEAF_FOLDER_ID),
+  });
+
   if (!email || !key) {
     throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY must be set');
   }
