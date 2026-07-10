@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic';
 import Link from 'next/link';
 import { createServerClient } from '@/lib/supabase/client';
 import UploadForm from '@/components/UploadForm';
+import QuotationDeleteButton from '@/components/QuotationDeleteButton';
 
 function statusBadge(status: string) {
   const map: Record<string, { label: string; cls: string }> = {
@@ -124,24 +125,30 @@ export default async function QuotationsPage() {
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          {isDone ? (
-                            <div className="flex items-center gap-3">
-                              <Link
-                                href={`/quotations/${q.id}/products`}
-                                className="text-xs text-zinc-500 hover:text-zinc-800 hover:underline"
-                              >
-                                判定結果
-                              </Link>
-                              <Link
-                                href={`/quotations/${q.id}/leaflets`}
-                                className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
-                              >
-                                リーフ編集 →
-                              </Link>
-                            </div>
-                          ) : (
-                            <span className="text-zinc-300 text-xs">—</span>
-                          )}
+                          <div className="flex items-center gap-3">
+                            {isDone && (
+                              <>
+                                <Link
+                                  href={`/quotations/${q.id}/products`}
+                                  className="text-xs text-zinc-500 hover:text-zinc-800 hover:underline"
+                                >
+                                  判定結果
+                                </Link>
+                                <Link
+                                  href={`/quotations/${q.id}/leaflets`}
+                                  className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
+                                >
+                                  リーフ編集 →
+                                </Link>
+                              </>
+                            )}
+                            {!isRunning && (
+                              <QuotationDeleteButton quotationId={q.id} label={q.source_ref ?? q.id.slice(0, 8)} />
+                            )}
+                            {!isDone && isRunning && (
+                              <span className="text-zinc-300 text-xs">—</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
