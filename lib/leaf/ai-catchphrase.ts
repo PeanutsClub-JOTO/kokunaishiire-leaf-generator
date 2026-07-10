@@ -80,9 +80,14 @@ ${isAssort ? `アソート内容（${data.itemCount}種）: ${assortNames.join('
     const raw = res.text ?? '';
     const jsonStr = raw.replace(/```json?/g, '').replace(/```/g, '').trim();
     const parsed = JSON.parse(jsonStr) as Catchphrase;
-    if (!parsed.main_copy) return null;
+    if (!parsed.main_copy) {
+      console.warn('[ai-catchphrase] empty main_copy, falling back. raw:', raw.slice(0, 200));
+      return null;
+    }
+    console.log(`[ai-catchphrase] OK for "${data.leafName}": ${parsed.main_copy}`);
     return parsed;
-  } catch {
+  } catch (e) {
+    console.warn('[ai-catchphrase] failed, falling back:', e instanceof Error ? e.message : e);
     return null;
   }
 }
