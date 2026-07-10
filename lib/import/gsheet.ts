@@ -13,7 +13,8 @@ import { extractXlsxImages } from './xlsx-images';
 
 function getAuth() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const key = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+  const key = rawKey?.replace(/\\n/g, '\n');
 
   if (!email || !key) {
     throw new Error(

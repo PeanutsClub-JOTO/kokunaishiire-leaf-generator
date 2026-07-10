@@ -443,6 +443,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
         ) ? 'accepted' : 'declined';
       }
 
+      setMessage(selected.status === 'final' ? 'Drive転送中…' : '確定してDriveへ転送中…');
+
       const res = await fetch(`/api/leaflets/${selected.id}/finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -458,16 +460,17 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
         setMessage(data.error ?? (selected.status === 'final' ? 'Drive再送に失敗しました' : '確定に失敗しました'));
         return;
       }
-      setMessage(
-        selected.status === 'final'
-          ? 'Drive転送を再実行しています。'
-          : followup === 'accepted'
-          ? '確定しました。Drive転送を開始します。必要に応じて右の候補からアソートも作成できます。'
-          : '確定しました。Drive転送を開始します。',
-      );
-      if (data.job_id) {
-        const completed = await waitForJob(data.job_id, 'Drive転送');
-        setMessage(completed ? 'Driveへ転送しました。' : 'Drive転送を受け付けました。まだ処理中なので、少し後に画面を更新してください。');
+
+      if (data.drive_error) {
+        setMessage(`Drive転送エラー: ${data.drive_error}`);
+      } else if (data.drive_done) {
+        setMessage(
+          followup === 'accepted'
+            ? 'Driveへ転送しました。必要に応じて右の候補からアソートも作成できます。'
+            : 'Driveへ転送しました。',
+        );
+      } else {
+        setMessage('確定しました。');
       }
       router.refresh();
     } catch (err) {

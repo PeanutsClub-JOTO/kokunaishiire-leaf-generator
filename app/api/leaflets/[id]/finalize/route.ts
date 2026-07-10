@@ -2,11 +2,12 @@
  * POST /api/leaflets/[id]/finalize
  *
  * リーフを正式確定し、確定リーフ一覧へ3日間表示し、
- * Google Drive転送ジョブを重複なく登録する。
+ * Google Driveへ直接転送する（ワーカー不要）。
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/client';
 import type { Database } from '@/lib/supabase/types';
+import { sanitizeDriveFileName, uploadImageUrlToDrive } from '@/lib/google/drive-export';
 
 type FinalizeBody = {
   product_code?: string;
@@ -27,7 +28,7 @@ export async function POST(
 
   const { data: current, error: currentErr } = await supabase
     .from('leaflets')
-    .select('id, leaf_image_url, render_status')
+    .select('id, leaf_image_url, render_status, status, product_code, leaf_name')
     .eq('id', id)
     .single();
 
@@ -47,7 +48,7 @@ export async function POST(
     status: 'final',
     finalized_at: now.toISOString(),
     final_visible_until: visibleUntil.toISOString(),
-    drive_export_status: 'pending',
+    drive_export_status: 'exporting',
     drive_export_error: null,
     updated_at: now.toISOString(),
     assort_followup_status: body.assort_followup_status ?? 'unasked',
@@ -69,46 +70,49 @@ export async function POST(
     return NextResponse.json({ error: updateErr.message }, { status: 500 });
   }
 
-  const { data: existingJob, error: existingErr } = await supabase
-    .from('jobs')
-    .select('id, status')
-    .eq('job_type', 'export_final_leaflet_to_drive')
-    .eq('target_id', id)
-    .in('status', ['queued', 'running'])
-    .limit(1)
-    .maybeSingle();
+  // Drive転送を直接実行（ワーカーに委譲せず、Vercel環境変数で完結）
+  try {
+    const leafName = body.leaf_name ?? current.leaf_name ?? '';
+    const baseName = sanitizeDriveFileName(
+      [current.product_code, leafName, id.slice(0, 8)].filter(Boolean).join('_'),
+    );
 
-  if (existingErr) {
-    return NextResponse.json({ error: existingErr.message }, { status: 500 });
-  }
-
-  if (existingJob) {
-    return NextResponse.json({
-      leaflet,
-      job_id: existingJob.id,
-      status: existingJob.status,
-      deduped: true,
+    const result = await uploadImageUrlToDrive({
+      imageUrl: current.leaf_image_url,
+      fileName: `${baseName}.png`,
     });
-  }
 
-  const { data: job, error: jobErr } = await supabase
-    .from('jobs')
-    .insert({
-      job_type: 'export_final_leaflet_to_drive',
-      target_id: id,
-      status: 'queued',
-      progress: 0,
-    })
-    .select()
-    .single();
-
-  if (jobErr) {
     await supabase
       .from('leaflets')
-      .update({ drive_export_status: 'error', drive_export_error: jobErr.message })
+      .update({
+        drive_file_id: result.fileId,
+        drive_url: result.webViewLink ?? result.webContentLink,
+        drive_export_status: 'done',
+        drive_export_error: null,
+      })
       .eq('id', id);
-    return NextResponse.json({ error: jobErr.message }, { status: 500 });
-  }
 
-  return NextResponse.json({ leaflet, job_id: job.id, status: job.status });
+    return NextResponse.json({
+      leaflet: {
+        ...leaflet,
+        drive_file_id: result.fileId,
+        drive_url: result.webViewLink ?? result.webContentLink,
+        drive_export_status: 'done',
+      },
+      drive_done: true,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[finalize] Drive転送エラー:', message);
+
+    await supabase
+      .from('leaflets')
+      .update({ drive_export_status: 'error', drive_export_error: message })
+      .eq('id', id);
+
+    return NextResponse.json({
+      leaflet,
+      drive_error: message,
+    });
+  }
 }

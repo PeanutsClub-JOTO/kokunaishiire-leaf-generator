@@ -9,16 +9,22 @@ export type DriveUploadResult = {
 
 function getDriveAuth() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const key = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+  // Vercel/Railway では改行がリテラル "\\n" として格納される場合がある
+  const key = rawKey?.replace(/\\n/g, '\n');
 
   console.log('[drive-env]', {
     email: Boolean(email),
     privateKey: Boolean(key),
+    keyLength: key?.length ?? 0,
     folderId: Boolean(process.env.GOOGLE_DRIVE_FINAL_LEAF_FOLDER_ID),
   });
 
-  if (!email || !key) {
-    throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY must be set');
+  const missing: string[] = [];
+  if (!email) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL');
+  if (!key) missing.push('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY');
+  if (missing.length > 0) {
+    throw new Error(`環境変数が未設定です: ${missing.join(', ')}。Vercelの環境変数設定を確認してください。`);
   }
 
   return new google.auth.GoogleAuth({
