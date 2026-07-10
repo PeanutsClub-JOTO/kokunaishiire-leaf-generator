@@ -10,6 +10,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../../lib/supabase/types';
 import { extractXlsxCells, type RawSheetData } from '../../lib/import/xlsx-cells';
 import { extractXlsxImages } from '../../lib/import/xlsx-images';
+import { extractXlsImages, isLegacyXls } from '../../lib/import/xls-images';
 import { upscaleImageBuffer } from '../../lib/leaf/upscale-image';
 import { groupProducts, type ProductForGrouping } from '../../lib/assort/grouping';
 import { type Settings, DEFAULT_SETTINGS } from '../../lib/calc/engine';
@@ -320,8 +321,14 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
   await processRawSheets(supabase, quotation.id, rawSheets, settings);
 
   // Excel 画像抽出（失敗してもジョブは続行）
+  // 旧形式 .xls（OLE2バイナリ）と .xlsx（zip）で抽出方法を自動判別する
   try {
-    const imgResult = await extractXlsxImages(buffer);
+    const imgResult = isLegacyXls(buffer)
+      ? await extractXlsImages(buffer)
+      : await extractXlsxImages(buffer);
+    console.log(
+      `[import-xlsx] 画像抽出: ${isLegacyXls(buffer) ? 'xls(BIFF)' : 'xlsx(zip)'} images=${imgResult.images.length} unmatched=${imgResult.unmatched.length}`,
+    );
     if (imgResult.images.length > 0) {
       // この案件の全シート・全商品を取得し、(シート名, No.)→商品ID のマップを作る。
       // マルチシート（御見積書_01/02/03…）でも No. が衝突しないようシート単位で対応付ける。

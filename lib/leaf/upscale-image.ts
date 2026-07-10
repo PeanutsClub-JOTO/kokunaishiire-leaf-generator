@@ -53,6 +53,8 @@ export async function upscaleImageBuffer(buffer: Buffer): Promise<Buffer> {
       kernel: sharp.kernel.lanczos3,
       fastShrinkOnLoad: false,
     })
+    // 低解像度元画像の拡大でぼやけた輪郭・文字を引き締める（アンシャープマスク）
+    .sharpen({ sigma: 1.2, m1: 0.5, m2: 2 })
     .png({ compressionLevel: 6 })
     .toBuffer();
 }
