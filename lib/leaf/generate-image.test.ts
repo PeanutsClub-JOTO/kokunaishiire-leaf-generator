@@ -79,6 +79,25 @@ describe('buildLeafImageHtml', () => {
     expect(html).toContain('https://example.com/c.jpg');
   });
 
+  it('画像調整（拡大率・位置）を transform スタイルとして反映する', () => {
+    const html = buildLeafImageHtml({
+      ...baseData,
+      productImages: [{ url: 'https://example.com/a.jpg', scale: 130, x: 20, y: -10 }],
+    }, template);
+
+    expect(html).toContain('transform:translate(20px, -10px) scale(1.3)');
+  });
+
+  it('画像調整が既定値のときは transform スタイルを出力しない', () => {
+    const html = buildLeafImageHtml({
+      ...baseData,
+      productImages: [{ url: 'https://example.com/a.jpg', scale: 100, x: 0, y: 0 }],
+    }, template);
+
+    expect(html).toContain('https://example.com/a.jpg');
+    expect(html).not.toContain('transform:translate');
+  });
+
   it('HTMLをエスケープして文字化けやレイアウト破壊を防ぐ', () => {
     const html = buildLeafImageHtml({
       ...baseData,

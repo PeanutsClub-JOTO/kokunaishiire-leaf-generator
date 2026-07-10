@@ -42,7 +42,8 @@ export async function handleRenderLeafletImage(
       themeLabel: theme.label,
       itemCount: leafData.itemCount,
       productNames: leafData.productNames,
-      productImages: leafData.productImages,
+      // AI背景の入力にはURLのみ渡す（拡大率・位置の調整値は不要）
+      productImages: leafData.productImages.map((p) => (typeof p === 'string' ? p : p.url)),
     }),
   ]);
 

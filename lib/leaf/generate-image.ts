@@ -15,6 +15,17 @@ import * as path from 'path';
 import { escapeHtml } from './generate-pdf';
 import { timeoutMsFromEnv, withTimeout } from '../async/timeout';
 
+/** 商品画像1枚分。ワークベンチでの調整値（拡大率%・位置px）を含められる */
+export type ProductImage = {
+  url: string;
+  /** 拡大率 (%) 既定100 */
+  scale?: number;
+  /** 横位置 (px) 既定0 */
+  x?: number;
+  /** 縦位置 (px) 既定0 */
+  y?: number;
+};
+
 export type LeafletImageData = {
   id: string;
   status: 'draft' | 'final';
@@ -33,7 +44,7 @@ export type LeafletImageData = {
   /** アソート構成商品の品名。背景/コピー生成時に使用する */
   productNames?: string[];
   /** 見積書から抽出した商品画像（data URL または絶対パス）*/
-  productImages: string[];
+  productImages: Array<string | ProductImage>;
   flagMessages: string[];
   /** AI生成キャッチコピー（未設定ならルールベースにフォールバック） */
   catchphrase?: { main_copy: string; sub_copy: string } | null;
@@ -160,21 +171,37 @@ function buildMainCopy(data: LeafletImageData): string {
 
 /* ─── 商品画像 HTML 生成 ─── */
 
+function normalizeProductImage(src: string | ProductImage): ProductImage {
+  return typeof src === 'string' ? { url: src } : src;
+}
+
+/** ワークベンチの調整値を CSS transform に変換（既定値なら空文字） */
+export function imageTransformStyle(img: ProductImage): string {
+  const scale = img.scale ?? 100;
+  const x = img.x ?? 0;
+  const y = img.y ?? 0;
+  if (scale === 100 && x === 0 && y === 0) return '';
+  return `transform:translate(${x}px, ${y}px) scale(${scale / 100});`;
+}
+
 /**
  * 画像ソースを img タグに変換
  */
-function imgTag(src: string): string {
-  return `<div class="img-slot"><img src="${escapeHtml(src)}" alt="商品画像" loading="eager" /></div>`;
+function imgTag(src: string | ProductImage): string {
+  const img = normalizeProductImage(src);
+  const style = imageTransformStyle(img);
+  const styleAttr = style ? ` style="${style}"` : '';
+  return `<div class="img-slot"><img src="${escapeHtml(img.url)}" alt="商品画像" loading="eager"${styleAttr} /></div>`;
 }
 
 /**
  * 商品点数に応じた product-area クラスと img タグ群を生成
  */
-export function buildProductImagesHtml(productImages: string[]): {
+export function buildProductImagesHtml(productImages: Array<string | ProductImage>): {
   areaClass: string;
   imagesHtml: string;
 } {
-  const images = productImages.filter(Boolean);
+  const images = productImages.filter((s) => (typeof s === 'string' ? s : s?.url));
 
   if (images.length === 0) {
     return {

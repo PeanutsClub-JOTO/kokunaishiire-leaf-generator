@@ -226,6 +226,7 @@ export type Database = {
           drive_export_status: 'none' | 'pending' | 'exporting' | 'done' | 'error';
           drive_export_error: string | null;
           assort_followup_status: 'unasked' | 'not_needed' | 'accepted' | 'declined';
+          image_overrides: Json | null;
           created_at: string;
           updated_at: string;
         };
@@ -259,6 +260,7 @@ export type Database = {
           drive_export_status?: 'none' | 'pending' | 'exporting' | 'done' | 'error';
           drive_export_error?: string | null;
           assort_followup_status?: 'unasked' | 'not_needed' | 'accepted' | 'declined';
+          image_overrides?: Json | null;
           created_at?: string;
           updated_at?: string;
         };

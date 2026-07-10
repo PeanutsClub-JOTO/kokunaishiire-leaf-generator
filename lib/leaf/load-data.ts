@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/types';
 import type { LeafletData } from './generate-pdf';
-import type { LeafletImageData } from './generate-image';
+import type { LeafletImageData, ProductImage } from './generate-image';
 
 type ProductRef = {
   image_url: string | null;
@@ -13,23 +13,35 @@ type ProductRef = {
 };
 
 type ItemRef = {
+  product_id?: string;
   ratio: number;
   products: ProductRef | ProductRef[] | null;
 };
+
+/** leaflets.image_overrides: { [productId]: { scale, x, y } } */
+type ImageOverrideMap = Record<string, { scale?: number; x?: number; y?: number }>;
+
+function parseImageOverrides(raw: unknown): ImageOverrideMap {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return raw as ImageOverrideMap;
+}
 
 function pickProduct(products: ProductRef | ProductRef[] | null): ProductRef | null {
   if (Array.isArray(products)) return products[0] ?? null;
   return products;
 }
 
-function uniqueImages(items: ItemRef[]): string[] {
-  return Array.from(
-    new Set(
-      items
-        .map((item) => pickProduct(item.products)?.image_url)
-        .filter((url): url is string => Boolean(url)),
-    ),
-  );
+function uniqueImages(items: ItemRef[], overrides: ImageOverrideMap = {}): ProductImage[] {
+  const seen = new Set<string>();
+  const out: ProductImage[] = [];
+  for (const item of items) {
+    const url = pickProduct(item.products)?.image_url;
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    const ov = item.product_id ? overrides[item.product_id] : undefined;
+    out.push({ url, scale: ov?.scale, x: ov?.x, y: ov?.y });
+  }
+  return out;
 }
 
 function firstNote(items: ItemRef[]): string | null {
@@ -148,7 +160,7 @@ export async function loadLeafletImageData(
     // リーフ単位のセールスコピー(note)を最優先。未設定なら商品noteにフォールバック。
     note: leaflet.note ?? firstNote(items),
     productNames: productNames(items),
-    productImages: uniqueImages(items),
+    productImages: uniqueImages(items, parseImageOverrides(leaflet.image_overrides)),
     flagMessages,
   };
 }

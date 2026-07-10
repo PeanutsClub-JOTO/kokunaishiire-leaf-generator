@@ -41,8 +41,19 @@ export type WorkbenchLeaflet = {
   driveExportError: string | null;
   assortFollowupStatus: string;
   note: string | null;
+  /** { [productId]: { scale, x, y } } 商品画像の拡大率・位置調整 */
+  imageOverrides: Record<string, { scale?: number; x?: number; y?: number }> | null;
   items: WorkbenchItem[];
 };
+
+/** 商品画像1点分の調整値 */
+type ImgOv = { scale: number; x: number; y: number };
+const DEFAULT_IMG_OV: ImgOv = { scale: 100, x: 0, y: 0 };
+
+function imgTransformStyle(ov: ImgOv | undefined): string {
+  if (!ov || (ov.scale === 100 && ov.x === 0 && ov.y === 0)) return '';
+  return `transform:translate(${ov.x}px, ${ov.y}px) scale(${ov.scale / 100});`;
+}
 
 type Props = {
   quotationId: string;
@@ -53,7 +64,7 @@ type Props = {
 
 const DEFAULT_SETTINGS: SizingV2Settings = { profitCoef: 1.25, salesAdd: 3000, unitPriceCap: 1000, costCap: 33000, halfBase: 16500 };
 
-type Sizing = { ok: boolean; reason?: string; setCost: number; unitPrice: number; leafQty: number; costTotal: number; wholesale: number; isHalfOk: boolean };
+type Sizing = { ok: boolean; reason?: string; setCost: number; unitPrice: number; leafQty: number; costTotal: number; wholesale: number; isHalfOk: boolean; minLotPrice: number; maxLots: number };
 
 function calcSizing(items: WorkbenchItem[], settings: SizingV2Settings): Sizing {
   const types = items.map((i) => ({ cost: i.cost, minLotQty: i.minLotQty, ratio: i.ratio }));
@@ -67,6 +78,8 @@ function calcSizing(items: WorkbenchItem[], settings: SizingV2Settings): Sizing 
     costTotal: result.costTotal,
     wholesale: result.wholesale,
     isHalfOk: result.isHalfOk,
+    minLotPrice: result.minLotPrice,
+    maxLots: result.maxLots,
   };
 }
 
@@ -118,24 +131,29 @@ function sizeMm(d: string | null): string {
   const s = String(d).replace(/[WＷ]/g, '').replace(/[DＤHＨ]/g, '×').replace(/×+/g, '×').replace(/^×|×$/g, '');
   return /[a-zA-Z]/.test(s) ? s : `${s}mm`;
 }
-function productImagesHtml(imgs: string[]): { areaClass: string; imagesHtml: string } {
-  if (imgs.length === 0) {
+function productImagesHtml(items: WorkbenchItem[], imgOv: Record<string, ImgOv>): { areaClass: string; imagesHtml: string } {
+  const withImg = items.filter((it) => it.imageUrl);
+  if (withImg.length === 0) {
     return { areaClass: 'single', imagesHtml: '<div class="img-placeholder">商品画像未設定</div>' };
   }
-  const tags = imgs.slice(0, 4).map((s) => `<img src="${esc(s)}" alt="" loading="eager" />`).join('');
-  if (imgs.length === 1) return { areaClass: 'single', imagesHtml: tags };
-  if (imgs.length === 2) return { areaClass: 'assort-2', imagesHtml: tags };
-  if (imgs.length === 3) return { areaClass: 'assort-3', imagesHtml: tags };
+  const tags = withImg.slice(0, 4).map((it) => {
+    const style = imgTransformStyle(imgOv[it.productId]);
+    const styleAttr = style ? ` style="${style}"` : '';
+    return `<div class="img-slot"><img src="${esc(it.imageUrl as string)}" alt="" loading="eager"${styleAttr} /></div>`;
+  }).join('');
+  if (withImg.length === 1) return { areaClass: 'single', imagesHtml: tags };
+  if (withImg.length === 2) return { areaClass: 'assort-2', imagesHtml: tags };
+  if (withImg.length === 3) return { areaClass: 'assort-3', imagesHtml: tags };
   return { areaClass: 'assort-4', imagesHtml: tags };
 }
 
 // テンプレートにデータを差し込んで HTML を生成
-function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], sizing: Sizing): string {
+function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], sizing: Sizing, imgOv: Record<string, ImgOv> = {}): string {
   const leafName = items.map((i) => i.productName).join('・');
   const theme = selectTheme(leafName);
   const imgs = items.map((i) => i.imageUrl).filter(Boolean) as string[];
   const isAssort = items.length > 1;
-  const { areaClass, imagesHtml } = productImagesHtml(imgs);
+  const { areaClass, imagesHtml } = productImagesHtml(items, imgOv);
   const hero = isAssort
     ? `<div class="assort-grid">${imgs.slice(0, 4).map((s) => `<img src="${esc(s)}" alt="" />`).join('')}</div>`
     : imgs[0] ? `<img class="hero-image" src="${esc(imgs[0])}" alt="" />` : '<div class="image-placeholder">商品画像未設定</div>';
@@ -182,10 +200,29 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   const [assortSel, setAssortSel] = useState<Record<string, Record<string, number>>>(() =>
     Object.fromEntries(leaflets.map((l) => [l.id, Object.fromEntries(l.items.map((it) => [it.productId, it.ratio]))])),
   );
+  // 画像調整: リーフID → { productId: { scale, x, y } }
+  const [imgOvMap, setImgOvMap] = useState<Record<string, Record<string, ImgOv>>>(() =>
+    Object.fromEntries(
+      leaflets.map((l) => [
+        l.id,
+        Object.fromEntries(
+          l.items.map((it) => {
+            const ov = l.imageOverrides?.[it.productId];
+            return [it.productId, { scale: ov?.scale ?? 100, x: ov?.x ?? 0, y: ov?.y ?? 0 }];
+          }),
+        ),
+      ]),
+    ),
+  );
+  // アソート時にどの商品の画像を調整するか
+  const [imgEditPid, setImgEditPid] = useState<string | null>(null);
+  const [showCalc, setShowCalc] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const hasPendingAutoImages = leaflets.some(
-    (l) => !l.leafImageUrl && l.renderStatus !== 'error',
+    (l) =>
+      (!l.leafImageUrl || l.renderStatus === 'pending' || l.renderStatus === 'rendering') &&
+      l.renderStatus !== 'error',
   );
 
   useEffect(() => {
@@ -229,13 +266,36 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, isSingle: !isAssort }),
     [selected, edit, isAssort],
   );
+  const imgOv = useMemo<Record<string, ImgOv>>(() => imgOvMap[selected.id] ?? {}, [imgOvMap, selected.id]);
   const previewHtml = useMemo(
-    () => buildHtml(templateHtml, leafForPreview, editedItems, sizing),
-    [templateHtml, leafForPreview, editedItems, sizing],
+    () => buildHtml(templateHtml, leafForPreview, editedItems, sizing, imgOv),
+    [templateHtml, leafForPreview, editedItems, sizing, imgOv],
   );
+
+  // 画像調整の対象商品（アソート時はタブで選択、単品は先頭）
+  const imgEditTargets = editedItems.filter((it) => it.imageUrl);
+  const imgEditItem = imgEditTargets.find((it) => it.productId === imgEditPid) ?? imgEditTargets[0] ?? null;
+  const imgEditOv: ImgOv = (imgEditItem && imgOv[imgEditItem.productId]) || DEFAULT_IMG_OV;
+
+  // 保存対象の image_overrides（既定値の商品は省く）
+  function buildOverridesPayload(): Record<string, ImgOv> {
+    const out: Record<string, ImgOv> = {};
+    for (const it of editedItems) {
+      const ov = imgOv[it.productId];
+      if (ov && !(ov.scale === 100 && ov.x === 0 && ov.y === 0)) out[it.productId] = ov;
+    }
+    return out;
+  }
 
   function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string }>) {
     setEdits((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], ...patch } }));
+  }
+  function setImgOv(productId: string, patch: Partial<ImgOv>) {
+    setImgOvMap((prev) => {
+      const cur = prev[selected.id] ?? {};
+      const base = cur[productId] ?? DEFAULT_IMG_OV;
+      return { ...prev, [selected.id]: { ...cur, [productId]: { ...base, ...patch } } };
+    });
   }
   function setRatio(productId: string, ratio: number) {
     setAssortSel((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], [productId]: ratio } }));
@@ -249,7 +309,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     });
   }
 
-  // 単品リーフの情報を保存
+  // 単品リーフの情報を保存 → リーフ画像を再生成
   async function handleSave() {
     setSaving(true);
     setMessage('');
@@ -257,9 +317,16 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       await fetch(`/api/leaflets/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leaf_name: edit.leafName, lead_time: edit.leadTime, note: edit.note }),
+        body: JSON.stringify({
+          leaf_name: edit.leafName,
+          lead_time: edit.leadTime,
+          note: edit.note,
+          image_overrides: buildOverridesPayload(),
+        }),
       });
-      setMessage('保存しました');
+      // 調整内容を最終PNGへ反映するため再レンダリングを依頼
+      await fetch(`/api/leaflets/${selected.id}/image`, { method: 'POST' });
+      setMessage('保存しました。リーフ画像を再生成しています…');
       router.refresh();
     } catch {
       setMessage('保存に失敗しました');
@@ -289,8 +356,16 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
         setMessage(data.error ?? 'アソート作成に失敗しました');
         return;
       }
-      // 作成された新リーフに対して画像生成を依頼
+      // 作成された新リーフに画像調整を引き継いでから画像生成を依頼
       if (data.leaflet?.id) {
+        const overrides = buildOverridesPayload();
+        if (Object.keys(overrides).length > 0) {
+          await fetch(`/api/leaflets/${data.leaflet.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image_overrides: overrides }),
+          });
+        }
         await fetch(`/api/leaflets/${data.leaflet.id}/image`, { method: 'POST' });
       }
       setMessage('アソートリーフを作成し、画像生成を依頼しました。');
@@ -494,6 +569,60 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           </div>
         )}
 
+        {/* 商品画像の調整（拡大率・位置） */}
+        {imgEditItem && (
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-zinc-600">商品画像の調整</label>
+              <button
+                onClick={() => imgEditItem && setImgOv(imgEditItem.productId, DEFAULT_IMG_OV)}
+                className="text-[10px] text-zinc-400 hover:text-zinc-600 underline"
+              >
+                リセット
+              </button>
+            </div>
+            {imgEditTargets.length > 1 && (
+              <div className="flex flex-wrap gap-1 mb-2">
+                {imgEditTargets.map((it, i) => {
+                  const active = it.productId === imgEditItem.productId;
+                  return (
+                    <button
+                      key={it.productId}
+                      onClick={() => setImgEditPid(it.productId)}
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium truncate max-w-[9rem] border ${active ? 'border-indigo-400 bg-indigo-50 text-indigo-700' : 'border-zinc-200 bg-white text-zinc-500 hover:border-zinc-300'}`}
+                    >
+                      {i + 1}. {it.productName}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="space-y-2">
+              {([
+                ['拡大率', 'scale', 70, 200, imgEditOv.scale, '%'],
+                ['横位置', 'x', -200, 200, imgEditOv.x, 'px'],
+                ['縦位置', 'y', -150, 150, imgEditOv.y, 'px'],
+              ] as const).map(([label, key, min, max, value, unit]) => (
+                <div key={key} className="text-xs">
+                  <div className="flex justify-between text-zinc-600 mb-0.5">
+                    <span>{label}</span>
+                    <span className="font-medium">{value}{unit}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={min}
+                    max={max}
+                    value={value}
+                    onChange={(e) => imgEditItem && setImgOv(imgEditItem.productId, { [key]: Number(e.target.value) } as Partial<ImgOv>)}
+                    className="w-full"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] text-zinc-400">プレビューに即反映。「情報を保存」で生成画像にも反映されます。</p>
+          </div>
+        )}
+
         {/* 計算結果（ライブ） */}
         <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3 text-sm space-y-1">
           <Row label="単価" value={`${fmt(sizing.unitPrice)}円`} warn={sizing.unitPrice > sizingSettings.unitPriceCap} />
@@ -513,6 +642,37 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             }
             warn={selected.driveExportStatus === 'error'}
           />
+          <button
+            onClick={() => setShowCalc((v) => !v)}
+            className="w-full pt-1 text-left text-[11px] font-medium text-indigo-500 hover:text-indigo-700"
+          >
+            {showCalc ? '▼ 計算過程を閉じる' : '▶ 計算過程を見る'}
+          </button>
+          {showCalc && (
+            <div className="rounded border border-zinc-200 bg-white p-2 text-[11px] space-y-1">
+              <CalcRow label="1ロット原価" value={`¥${fmt(sizing.minLotPrice)}`} warn={sizing.minLotPrice > sizingSettings.costCap} />
+              <CalcRow label={`上限¥${fmt(sizingSettings.costCap)}以内の最大ロット数`} value="" />
+              <CalcRow label={`floor(${fmt(sizingSettings.costCap)} ÷ ${fmt(sizing.minLotPrice)})`} value={`${fmt(sizing.maxLots)} ロット`} indent />
+              <CalcRow label="掲載入数" value="" />
+              <CalcRow label={`1ロット入数 × ${fmt(sizing.maxLots)}`} value={`${fmt(sizing.leafQty)} 個`} indent />
+              <CalcRow label="仕入原価合計" value="" />
+              <CalcRow label={`¥${fmt(sizing.minLotPrice)} × ${fmt(sizing.maxLots)}`} value={`¥${fmt(sizing.costTotal)}`} indent />
+              <CalcRow label="掲載卸売価格" value="" />
+              <CalcRow label={`(¥${fmt(sizing.costTotal)} + ¥${fmt(sizingSettings.salesAdd)}) × ${sizingSettings.profitCoef}`} value={`¥${fmt(sizing.wholesale)}`} indent />
+              <CalcRow label="掲載単価" value="" />
+              <CalcRow
+                label={`¥${fmt(sizing.wholesale)} ÷ ${fmt(sizing.leafQty)}個`}
+                value={`¥${sizing.unitPrice.toFixed(0)}（上限¥${fmt(sizingSettings.unitPriceCap)}）`}
+                indent
+                warn={sizing.unitPrice > sizingSettings.unitPriceCap}
+              />
+              <CalcRow
+                label={`ハーフ判定: 1ロット原価 ≦ ¥${fmt(sizingSettings.halfBase)}`}
+                value={sizing.isHalfOk ? '可' : '不可'}
+                warn={!sizing.isHalfOk}
+              />
+            </div>
+          )}
         </div>
         {selected.driveExportError && (
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
@@ -545,7 +705,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
                 {saving ? '処理中…' : '情報を保存'}
               </button>
               <p className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
-                リーフ画像は見積取込後またはアソート作成時に生成されます。修正内容は保存後、次回の再生成で反映されます。
+                保存すると、編集内容と画像調整を反映してリーフ画像が自動再生成されます。
               </p>
             </>
           )}
@@ -583,6 +743,15 @@ function Row({ label, value, warn }: { label: string; value: string; warn?: bool
     <div className="flex justify-between">
       <span className="text-zinc-500 text-xs">{label}</span>
       <span className={`font-semibold ${warn ? 'text-red-600' : 'text-zinc-800'}`}>{value}</span>
+    </div>
+  );
+}
+
+function CalcRow({ label, value, indent, warn }: { label: string; value: string; indent?: boolean; warn?: boolean }) {
+  return (
+    <div className={`flex justify-between gap-2 ${indent ? 'pl-3' : ''}`}>
+      <span className={indent ? 'text-zinc-500' : 'font-semibold text-zinc-600'}>{label}</span>
+      <span className={`shrink-0 font-semibold ${warn ? 'text-red-600' : 'text-zinc-800'}`}>{value}</span>
     </div>
   );
 }
