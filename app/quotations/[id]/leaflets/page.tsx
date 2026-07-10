@@ -99,6 +99,7 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
       assortFollowupStatus: leaf.assort_followup_status ?? 'unasked',
       note: leaf.note ?? null,
       imageOverrides: (leaf.image_overrides ?? null) as Record<string, { scale?: number; x?: number; y?: number }> | null,
+      mainCopyOverride: leaf.main_copy_override ?? null,
       items: items.map((it) => {
         const p = Array.isArray(it.products) ? it.products[0] : it.products;
         return {

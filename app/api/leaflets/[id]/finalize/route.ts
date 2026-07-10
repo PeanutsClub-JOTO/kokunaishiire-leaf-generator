@@ -15,6 +15,7 @@ type FinalizeBody = {
   leaf_name?: string;
   lead_time?: string;
   note?: string;
+  main_copy_override?: string | null;
   assort_followup_status?: 'unasked' | 'not_needed' | 'accepted' | 'declined';
 };
 
@@ -56,6 +57,7 @@ export async function POST(
   if (body.leaf_name !== undefined) update.leaf_name = body.leaf_name;
   if (body.lead_time !== undefined) update.lead_time = body.lead_time;
   if (body.note !== undefined) update.note = body.note;
+  if (body.main_copy_override !== undefined) update.main_copy_override = body.main_copy_override;
   if (body.product_code !== undefined) update.product_code = body.product_code;
   if (body.pj_no !== undefined) update.pj_no = body.pj_no;
 

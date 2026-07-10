@@ -159,6 +159,7 @@ export async function loadLeafletImageData(
     pieceSize: leaflet.piece_size ?? firstProduct?.piece_size ?? null,
     // リーフ単位のセールスコピー(note)を最優先。未設定なら商品noteにフォールバック。
     note: leaflet.note ?? firstNote(items),
+    mainCopyOverride: leaflet.main_copy_override ?? null,
     productNames: productNames(items),
     productImages: uniqueImages(items, parseImageOverrides(leaflet.image_overrides)),
     flagMessages,

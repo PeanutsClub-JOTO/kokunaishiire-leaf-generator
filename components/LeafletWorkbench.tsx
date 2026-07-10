@@ -42,6 +42,8 @@ export type WorkbenchLeaflet = {
   driveExportError: string | null;
   assortFollowupStatus: string;
   note: string | null;
+  /** ワークベンチで手動編集したキャッチコピー（AIより優先） */
+  mainCopyOverride: string | null;
   /** { [productId]: { scale, x, y } } 商品画像の拡大率・位置調整 */
   imageOverrides: Record<string, { scale?: number; x?: number; y?: number }> | null;
   items: WorkbenchItem[];
@@ -155,7 +157,7 @@ function productImagesHtml(items: WorkbenchItem[], imgOv: Record<string, ImgOv>)
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 // テンプレートにデータを差し込んで HTML を生成
-function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], sizing: Sizing, imgOv: Record<string, ImgOv> = {}): string {
+function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], sizing: Sizing, imgOv: Record<string, ImgOv> = {}, mainCopyOverride = ''): string {
   const leafName = items.map((i) => i.productName).join('・');
   const theme = selectTheme(leafName);
   const imgs = items.map((i) => i.imageUrl).filter(Boolean) as string[];
@@ -173,7 +175,7 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
     .replaceAll('{{AI_BG_STYLE}}', aiBgStyle)
     .replaceAll('{{THEME_CLASS}}', theme.cls)
     .replaceAll('{{THEME_LABEL}}', esc(theme.label))
-    .replaceAll('{{MAIN_COPY}}', esc(mainCopy(items)))
+    .replaceAll('{{MAIN_COPY}}', esc(mainCopyOverride.trim() || mainCopy(items)))
     .replaceAll('{{SALES_COPY}}', esc(leaf.note?.trim() ? leaf.note : salesCopy(items)))
     .replaceAll('{{ASSORT_CLASS}}', isAssort ? 'assort' : '')
     .replaceAll('{{HERO_IMAGE_HTML}}', hero)
@@ -203,8 +205,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   const sizingSettings = settings ?? DEFAULT_SETTINGS;
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(leaflets[0]?.id ?? '');
-  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string }>>(() =>
-    Object.fromEntries(leaflets.map((l) => [l.id, { leafName: l.leafName, leadTime: l.leadTime, note: l.note ?? '' }])),
+  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string; mainCopy: string }>>(() =>
+    Object.fromEntries(leaflets.map((l) => [l.id, { leafName: l.leafName, leadTime: l.leadTime, note: l.note ?? '', mainCopy: l.mainCopyOverride ?? '' }])),
   );
   // アソート選択: ベースリーフID → { productId: ratio }（ベース商品を必ず含む）
   const [assortSel, setAssortSel] = useState<Record<string, Record<string, number>>>(() =>
@@ -279,8 +281,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   );
   const imgOv = useMemo<Record<string, ImgOv>>(() => imgOvMap[selected.id] ?? {}, [imgOvMap, selected.id]);
   const previewHtml = useMemo(
-    () => buildHtml(templateHtml, leafForPreview, editedItems, sizing, imgOv),
-    [templateHtml, leafForPreview, editedItems, sizing, imgOv],
+    () => buildHtml(templateHtml, leafForPreview, editedItems, sizing, imgOv, edit.mainCopy),
+    [templateHtml, leafForPreview, editedItems, sizing, imgOv, edit.mainCopy],
   );
 
   // 画像調整の対象商品（アソート時はタブで選択、単品は先頭）
@@ -298,7 +300,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     return out;
   }
 
-  function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string }>) {
+  function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string; mainCopy: string }>) {
     setEdits((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], ...patch } }));
   }
   function setImgOv(productId: string, patch: Partial<ImgOv>) {
@@ -357,6 +359,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           leaf_name: edit.leafName,
           lead_time: edit.leadTime,
           note: edit.note,
+          main_copy_override: edit.mainCopy.trim() || null,
           image_overrides: buildOverridesPayload(),
         }),
       });
@@ -411,14 +414,18 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
         setMessage(data.error ?? 'アソート作成に失敗しました');
         return;
       }
-      // 作成された新リーフに画像調整を引き継いでから画像生成を依頼
+      // 作成された新リーフに画像/キャッチコピー調整を引き継いでから画像生成を依頼
       if (data.leaflet?.id) {
         const overrides = buildOverridesPayload();
-        if (Object.keys(overrides).length > 0) {
+        const mainCopy = edit.mainCopy.trim();
+        const patchBody: Record<string, unknown> = {};
+        if (Object.keys(overrides).length > 0) patchBody.image_overrides = overrides;
+        if (mainCopy) patchBody.main_copy_override = mainCopy;
+        if (Object.keys(patchBody).length > 0) {
           await fetch(`/api/leaflets/${data.leaflet.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_overrides: overrides }),
+            body: JSON.stringify(patchBody),
           });
         }
         await fetch(`/api/leaflets/${data.leaflet.id}/image`, { method: 'POST' });
@@ -452,6 +459,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           leaf_name: edit.leafName,
           lead_time: edit.leadTime,
           note: edit.note,
+          main_copy_override: edit.mainCopy.trim() || null,
           assort_followup_status: followup,
         }),
       });
@@ -567,7 +575,18 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-zinc-500 mb-1">セールスコピー（空欄なら自動生成）</label>
+          <label className="block text-xs font-medium text-zinc-500 mb-1">キャッチコピー（空欄ならAI/自動生成）</label>
+          <textarea
+            value={edit.mainCopy}
+            onChange={(e) => patchEdit({ mainCopy: e.target.value })}
+            rows={2}
+            placeholder={mainCopy(editedItems)}
+            className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          />
+          <p className="mt-0.5 text-[10px] text-zinc-400">改行で2行にできます。空欄時はGeminiが自動生成し、それも失敗したらルールベース。</p>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-500 mb-1">セールスコピー（空欄ならAI/自動生成）</label>
           <textarea
             value={edit.note}
             onChange={(e) => patchEdit({ note: e.target.value })}

@@ -45,6 +45,8 @@ export async function PATCH(
     leaf_name?: string;
     lead_time?: string;
     note?: string;
+    /** ワークベンチで手動編集したキャッチコピー（AIより優先） */
+    main_copy_override?: string | null;
     /** { [productId]: { scale, x, y } } 商品画像の拡大率・位置調整 */
     image_overrides?: Record<string, { scale?: number; x?: number; y?: number }>;
   };

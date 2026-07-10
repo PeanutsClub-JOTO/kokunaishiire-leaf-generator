@@ -48,6 +48,8 @@ export type LeafletImageData = {
   flagMessages: string[];
   /** AI生成キャッチコピー（未設定ならルールベースにフォールバック） */
   catchphrase?: { main_copy: string; sub_copy: string } | null;
+  /** ワークベンチで手動編集したキャッチコピー（AIより優先） */
+  mainCopyOverride?: string | null;
   /** AI生成背景画像のデータURL（未設定ならCSSストライプ） */
   aiBgDataUrl?: string | null;
 };
@@ -233,8 +235,11 @@ export function buildLeafImageHtml(
   const productCode = cleanText(data.productCode) || '商品コード未設定';
   const pjNo = cleanText(data.pjNo) || '未設定';
 
-  // AI生成コピーを優先、なければルールベース
-  const mainCopy = data.catchphrase?.main_copy ?? buildMainCopy(data);
+  // 優先順: ユーザー編集 > AI生成 > ルールベース
+  const mainCopy =
+    cleanText(data.mainCopyOverride ?? '') ||
+    data.catchphrase?.main_copy ||
+    buildMainCopy(data);
 
   const theme = selectLeafTheme(data);
 
