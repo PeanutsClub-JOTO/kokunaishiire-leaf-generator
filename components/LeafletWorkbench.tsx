@@ -65,6 +65,10 @@ type Props = {
 const DEFAULT_SETTINGS: SizingV2Settings = { profitCoef: 1.25, salesAdd: 3000, unitPriceCap: 1000, costCap: 33000, halfBase: 16500 };
 
 type Sizing = { ok: boolean; reason?: string; setCost: number; unitPrice: number; leafQty: number; costTotal: number; wholesale: number; isHalfOk: boolean; minLotPrice: number; maxLots: number };
+type JobStatus = {
+  status?: string;
+  error_message?: string | null;
+};
 
 function calcSizing(items: WorkbenchItem[], settings: SizingV2Settings): Sizing {
   const types = items.map((i) => ({ cost: i.cost, minLotQty: i.minLotQty, ratio: i.ratio }));
@@ -147,6 +151,8 @@ function productImagesHtml(items: WorkbenchItem[], imgOv: Record<string, ImgOv>)
   return { areaClass: 'assort-4', imagesHtml: tags };
 }
 
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 // テンプレートにデータを差し込んで HTML を生成
 function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], sizing: Sizing, imgOv: Record<string, ImgOv> = {}): string {
   const leafName = items.map((i) => i.productName).join('・');
@@ -225,12 +231,13 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       (!l.leafImageUrl || l.renderStatus === 'pending' || l.renderStatus === 'rendering') &&
       l.renderStatus !== 'error',
   );
+  const hasPendingDriveExport = leaflets.some((l) => l.driveExportStatus === 'pending' || l.driveExportStatus === 'exporting');
 
   useEffect(() => {
-    if (!hasPendingAutoImages) return;
+    if (!hasPendingAutoImages && !hasPendingDriveExport) return;
     const timer = window.setInterval(() => router.refresh(), 5000);
     return () => window.clearInterval(timer);
-  }, [hasPendingAutoImages, router]);
+  }, [hasPendingAutoImages, hasPendingDriveExport, router]);
 
   useEffect(() => {
     setPreviewMode('image');
@@ -319,12 +326,37 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     });
   }
 
+  async function waitForJob(jobId: string, label: string, maxAttempts = 90): Promise<boolean> {
+    let failureCount = 0;
+    for (let i = 0; i < maxAttempts; i += 1) {
+      await wait(2000);
+      const res = await fetch(`/api/jobs/${jobId}`, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.job) {
+        failureCount += 1;
+        if (failureCount >= 3) {
+          throw new Error(data.error ?? `${label}の状態確認に失敗しました`);
+        }
+        setMessage(`${label}中です。状態を再確認しています…`);
+        continue;
+      }
+      failureCount = 0;
+      const job = data.job as JobStatus;
+      if (job.status === 'error') {
+        throw new Error(job.error_message ?? `${label}に失敗しました`);
+      }
+      if (job.status === 'done') return true;
+      if (i % 5 === 4) router.refresh();
+    }
+    return false;
+  }
+
   // 単品リーフの情報を保存 → リーフ画像を再生成
   async function handleSave() {
     setSaving(true);
     setMessage('');
     try {
-      await fetch(`/api/leaflets/${selected.id}`, {
+      const patchRes = await fetch(`/api/leaflets/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -334,12 +366,32 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           image_overrides: buildOverridesPayload(),
         }),
       });
+      const patchData = await patchRes.json().catch(() => ({}));
+      if (!patchRes.ok) {
+        setMessage(patchData.error ?? '保存に失敗しました');
+        return;
+      }
+
       // 調整内容を最終PNGへ反映するため再レンダリングを依頼
-      await fetch(`/api/leaflets/${selected.id}/image`, { method: 'POST' });
+      const imageRes = await fetch(`/api/leaflets/${selected.id}/image`, { method: 'POST' });
+      const imageData = await imageRes.json().catch(() => ({}));
+      if (!imageRes.ok) {
+        setMessage(imageData.error ?? 'リーフ画像生成ジョブの登録に失敗しました');
+        return;
+      }
       setMessage('保存しました。リーフ画像を再生成しています…');
+      if (imageData.job_id) {
+        const completed = await waitForJob(imageData.job_id, 'リーフ画像を再生成');
+        if (completed) {
+          setPreviewMode('image');
+          setMessage('リーフ画像を更新しました。');
+        } else {
+          setMessage('リーフ画像の再生成を受け付けました。まだ処理中なので、少し後に画面を更新してください。');
+        }
+      }
       router.refresh();
-    } catch {
-      setMessage('保存に失敗しました');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : '保存に失敗しました');
     } finally {
       setSaving(false);
     }
@@ -418,9 +470,13 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           ? '確定しました。Drive転送を開始します。必要に応じて右の候補からアソートも作成できます。'
           : '確定しました。Drive転送を開始します。',
       );
+      if (data.job_id) {
+        const completed = await waitForJob(data.job_id, 'Drive転送');
+        setMessage(completed ? 'Driveへ転送しました。' : 'Drive転送を受け付けました。まだ処理中なので、少し後に画面を更新してください。');
+      }
       router.refresh();
-    } catch {
-      setMessage('確定に失敗しました');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : '確定に失敗しました');
     } finally {
       setSaving(false);
     }
