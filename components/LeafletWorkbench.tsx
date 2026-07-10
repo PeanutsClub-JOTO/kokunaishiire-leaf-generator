@@ -437,7 +437,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     setMessage('');
     try {
       let followup: 'not_needed' | 'accepted' | 'declined' = 'not_needed';
-      if (!isAssort && compatItems.length > 0) {
+      if (selected.status !== 'final' && !isAssort && compatItems.length > 0) {
         followup = window.confirm(
           'この商品は他の商品とアソートできる可能性があります。\n\nOK: 確定後もアソート企画を検討する\nキャンセル: 今回は単品確定のみ',
         ) ? 'accepted' : 'declined';
@@ -455,11 +455,13 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMessage(data.error ?? '確定に失敗しました');
+        setMessage(data.error ?? (selected.status === 'final' ? 'Drive再送に失敗しました' : '確定に失敗しました'));
         return;
       }
       setMessage(
-        followup === 'accepted'
+        selected.status === 'final'
+          ? 'Drive転送を再実行しています。'
+          : followup === 'accepted'
           ? '確定しました。Drive転送を開始します。必要に応じて右の候補からアソートも作成できます。'
           : '確定しました。Drive転送を開始します。',
       );
@@ -469,7 +471,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       }
       router.refresh();
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : '確定に失敗しました');
+      setMessage(err instanceof Error ? err.message : (selected.status === 'final' ? 'Drive再送に失敗しました' : '確定に失敗しました'));
     } finally {
       setSaving(false);
     }
@@ -774,9 +776,17 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             </>
           )}
           {selected.status === 'final' ? (
-            <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
-              確定済み。確定リーフ一覧に3日間表示されます。
-            </div>
+            <>
+              <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+                確定済み。確定リーフ一覧に3日間表示されます。
+              </div>
+              {selected.driveExportStatus !== 'done' && (
+                <button onClick={handleFinalize} disabled={saving || !selected.leafImageUrl}
+                  className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+                  {saving ? '転送中…' : 'Driveへ再送する'}
+                </button>
+              )}
+            </>
           ) : isTemporaryAssort ? (
             <p className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
               先に「この組み合わせでアソート作成＋画像生成」を押すと、作成されたアソートリーフを確定できます。
