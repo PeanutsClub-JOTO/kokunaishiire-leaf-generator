@@ -168,14 +168,21 @@ export function matchImageToProduct(
   const positionColMax = options.maxPositionColDistance ?? 8;
   const preferSequentialFallback =
     Boolean(options.preferSequentialFallback) && sheetCandidates.every((p) => p.no === null);
+  const hasPositionedCandidates = sheetCandidates.some(
+    (p) => p.sourceRow !== null && p.sourceRow !== undefined && p.sourceCol !== null && p.sourceCol !== undefined,
+  );
 
   const byPosition = matchByNearestPosition(
     image,
-    candidates,
+    sheetCandidates,
     positionRowMax,
     positionColMax,
   );
+  if (byPosition && options.excludeProductIds?.has(byPosition.productId)) return null;
   if (byPosition) return byPosition;
+  // 商品セルの行・列が取れている資料では、位置で合わない画像を順番だけで補完しない。
+  // 横並びカタログではこれが隣接/別段の商品への誤紐付けになりやすい。
+  if (hasPositionedCandidates) return null;
 
   if (image.mappingStrategy === 'inline_anchor') {
     const sourceRows = candidates

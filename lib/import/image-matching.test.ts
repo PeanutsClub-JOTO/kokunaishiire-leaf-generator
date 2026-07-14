@@ -107,6 +107,43 @@ describe('matchImageToProduct', () => {
     expect(match).toEqual({ productId: 'p3', reason: 'nearest_row', rowDistance: 7 });
   });
 
+  it('does not fall back to sheet order when positioned catalog images are too far away', () => {
+    const horizontalProducts: ProductImageTarget[] = [
+      { id: 'p1', sheetName: 'Sheet1', no: null, sourceRow: 11, sourceCol: 2, sourceIndex: 0 },
+      { id: 'p2', sheetName: 'Sheet1', no: null, sourceRow: 20, sourceCol: 2, sourceIndex: 1 },
+      { id: 'p3', sheetName: 'Sheet1', no: null, sourceRow: 47, sourceCol: 42, sourceIndex: 2 },
+    ];
+
+    const match = matchImageToProduct(
+      img({ anchorRow: 15, anchorCol: 3, mappingStrategy: 'inline_anchor' }),
+      horizontalProducts,
+      {
+        excludeProductIds: new Set(['p1', 'p2']),
+        preferSequentialFallback: true,
+      },
+    );
+
+    expect(match).toBeNull();
+  });
+
+  it('does not move a positioned duplicate image to the next available product', () => {
+    const horizontalProducts: ProductImageTarget[] = [
+      { id: 'p1', sheetName: 'Sheet1', no: null, sourceRow: 11, sourceCol: 26, sourceIndex: 0 },
+      { id: 'p2', sheetName: 'Sheet1', no: null, sourceRow: 20, sourceCol: 34, sourceIndex: 1 },
+    ];
+
+    const match = matchImageToProduct(
+      img({ anchorRow: 14, anchorCol: 28, mappingStrategy: 'inline_anchor' }),
+      horizontalProducts,
+      {
+        excludeProductIds: new Set(['p1']),
+        preferSequentialFallback: true,
+      },
+    );
+
+    expect(match).toBeNull();
+  });
+
   it('does not map likely header images far above the first product row', () => {
     const match = matchImageToProduct(
       img({ anchorRow: 7, mappingStrategy: 'inline_anchor' }),

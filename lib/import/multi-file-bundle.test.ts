@@ -159,6 +159,33 @@ describe('multi-file workbook bundle', () => {
     expect(result.productImages[0].image.mediaPath).toBe('image-for-c');
   });
 
+  it('does not carry images through fuzzy name-only support matches', () => {
+    const result = mergeWorkbookBundle([
+      {
+        fileName: '見積書.xlsx',
+        sheets: [sheet([row({ product_name: '銀汐 ナッツミックス', cost: 100 })])],
+        images: [],
+      },
+      {
+        fileName: '商品リスト.xlsx',
+        sheets: [
+          sheet([
+            row({
+              product_name: 'ナッツミックス',
+              shelf_life_days: 180,
+              source_row: 12,
+              source_col: 2,
+            }),
+          ]),
+        ],
+        images: [image('fuzzy-image', null, { anchorRow: 12, anchorCol: 2 })],
+      },
+    ]);
+
+    expect(result.sheets[0].products[0].shelf_life_days).toBe(180);
+    expect(result.productImages).toHaveLength(0);
+  });
+
   it('does not add catalog-only products when quotation rows exist', () => {
     const result = mergeWorkbookBundle([
       {

@@ -207,6 +207,16 @@ function findCanonicalIndex(
   return null;
 }
 
+function hasStrongImageIdentity(incoming: RawProductRow, base: RawProductRow): boolean {
+  const incomingJan = productJan(incoming);
+  const baseJan = productJan(base);
+  if (incomingJan && baseJan && incomingJan === baseJan) return true;
+
+  const incomingName = cleanName(incoming.product_name);
+  const baseName = cleanName(base.product_name);
+  return Boolean(incomingName && baseName && incomingName === baseName);
+}
+
 function rememberCanonical(
   index: number,
   canonical: CanonicalProduct[],
@@ -298,8 +308,12 @@ export function mergeWorkbookBundle(sources: WorkbookBundleSource[]): WorkbookBu
       true,
     );
     if (existing === null) continue;
+    const canCarryImage =
+      Boolean(product.image) && hasStrongImageIdentity(product.sourceRow, canonical[existing].row);
     mergeRow(canonical[existing].row, product.sourceRow);
-    if (!canonical[existing].image && product.image) canonical[existing].image = product.image;
+    if (!canonical[existing].image && product.image && canCarryImage) {
+      canonical[existing].image = product.image;
+    }
     rememberCanonical(existing, canonical, janMap, nameMap, ambiguousNames);
   }
 
