@@ -24,6 +24,7 @@ export type Database = {
           source_ref: string | null;
           client_name: string | null;
           quoted_at: string | null;
+          expires_at: string | null;
           created_at: string;
         };
         Insert: {
@@ -32,6 +33,7 @@ export type Database = {
           source_ref?: string | null;
           client_name?: string | null;
           quoted_at?: string | null;
+          expires_at?: string | null;
           created_at?: string;
         };
         Update: {
@@ -39,6 +41,7 @@ export type Database = {
           source_ref?: string | null;
           client_name?: string | null;
           quoted_at?: string | null;
+          expires_at?: string | null;
           created_at?: string;
         };
         Relationships: [];
@@ -429,6 +432,118 @@ export type Database = {
           }
         ];
       };
+      ocr_prompts: {
+        Row: {
+          id: string;
+          version: number;
+          system_prompt: string;
+          user_prompt: string;
+          is_active: boolean;
+          tuning_reason: string | null;
+          regression_result: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          version: number;
+          system_prompt: string;
+          user_prompt?: string;
+          is_active?: boolean;
+          tuning_reason?: string | null;
+          regression_result?: Json | null;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['ocr_prompts']['Insert']>;
+        Relationships: [];
+      };
+      import_metrics: {
+        Row: {
+          id: string;
+          job_id: string | null;
+          quotation_id: string | null;
+          source_type: string;
+          ocr_confidence: number | null;
+          prompt_version: number | null;
+          field_fill_rate: number | null;
+          parse_error_rate: number | null;
+          product_count: number;
+          parse_errors: Json | null;
+          error_message: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          job_id?: string | null;
+          quotation_id?: string | null;
+          source_type: string;
+          ocr_confidence?: number | null;
+          prompt_version?: number | null;
+          field_fill_rate?: number | null;
+          parse_error_rate?: number | null;
+          product_count?: number;
+          parse_errors?: Json | null;
+          error_message?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['import_metrics']['Insert']>;
+        Relationships: [];
+      };
+      ocr_golden_tests: {
+        Row: {
+          id: string;
+          source_quotation_id: string | null;
+          source_job_id: string | null;
+          file_storage_path: string;
+          file_mime_type: string;
+          expected_products: Json;
+          expected_confidence: number;
+          maker_name: string | null;
+          product_count: number;
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          source_quotation_id?: string | null;
+          source_job_id?: string | null;
+          file_storage_path: string;
+          file_mime_type: string;
+          expected_products: Json;
+          expected_confidence: number;
+          maker_name?: string | null;
+          product_count: number;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['ocr_golden_tests']['Insert']>;
+        Relationships: [];
+      };
+      ocr_tune_logs: {
+        Row: {
+          id: string;
+          trigger_reason: string;
+          analyzed_job_ids: string[];
+          new_prompt_version: number | null;
+          regression_passed: boolean | null;
+          regression_details: Json | null;
+          prompt_adopted: boolean;
+          analysis_summary: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          trigger_reason: string;
+          analyzed_job_ids?: string[];
+          new_prompt_version?: number | null;
+          regression_passed?: boolean | null;
+          regression_details?: Json | null;
+          prompt_adopted?: boolean;
+          analysis_summary?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['ocr_tune_logs']['Insert']>;
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };
@@ -449,3 +564,7 @@ export type Job = Database['public']['Tables']['jobs']['Row'];
 export type AppSetting = Database['public']['Tables']['app_settings']['Row'];
 export type GmailEstimateMessage = Database['public']['Tables']['gmail_estimate_messages']['Row'];
 export type GmailEstimateFile = Database['public']['Tables']['gmail_estimate_files']['Row'];
+export type OcrPrompt = Database['public']['Tables']['ocr_prompts']['Row'];
+export type ImportMetric = Database['public']['Tables']['import_metrics']['Row'];
+export type OcrGoldenTest = Database['public']['Tables']['ocr_golden_tests']['Row'];
+export type OcrTuneLog = Database['public']['Tables']['ocr_tune_logs']['Row'];

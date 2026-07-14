@@ -18,6 +18,8 @@ import {
 } from '../../lib/import/xlsx-cells';
 import { parseLooseNumber } from '../../lib/import/number';
 import { loadSettings, processRawSheets } from './import-xlsx';
+import { recordImportMetrics, maybeAddGoldenTest } from '../../lib/import/ocr-metrics';
+import { getActivePrompt, getActivePromptVersion } from '../../lib/import/ocr-prompt-store';
 
 type Supabase = SupabaseClient<Database>;
 type Job = Database['public']['Tables']['jobs']['Row'];
@@ -111,6 +113,7 @@ export async function handleImportPdf(
   let rawProducts: RawProductRow[] = [];
   let sheetName = quotation.source_ref ?? 'PDF取込';
   let makerName: string | null = null;
+  let ocrConfidence: number | null = null;
 
   if (!isImagePdf) {
     // テキストPDF: pdfplumber で抽出を試みる
@@ -124,10 +127,15 @@ export async function handleImportPdf(
   // 結果が空 or 画像PDF: Gemini にフォールバック
   if (rawProducts.length === 0) {
     const base64 = buffer.toString('base64');
-    const llmResult = await extractFromImagePdf(base64, 'application/pdf');
+    const activePrompt = await getActivePrompt(supabase);
+    const llmResult = await extractFromImagePdf(base64, 'application/pdf', {
+      systemPrompt: activePrompt.systemPrompt,
+      userPrompt: activePrompt.userPrompt,
+    });
 
     sheetName = `${sheetName}（AI抽出）`;
     makerName = llmResult.products[0]?.maker_name ?? null;
+    ocrConfidence = llmResult.confidence;
 
     const lowConfidence = llmResult.confidence < LOW_CONFIDENCE_THRESHOLD;
 
@@ -156,6 +164,15 @@ export async function handleImportPdf(
 
   if (rawProducts.length === 0) {
     console.warn('[import-pdf] No products extracted, marking done with warning');
+    await recordImportMetrics(supabase, {
+      jobId: job.id,
+      quotationId: quotation.id,
+      sourceType: 'pdf',
+      ocrConfidence: 0,
+      promptVersion: await getActivePromptVersion(supabase),
+      rawSheets: [],
+      errorMessage: 'No products extracted',
+    }).catch((e) => console.warn('[import-pdf] メトリクス記録失敗:', e));
     return;
   }
 
@@ -166,4 +183,27 @@ export async function handleImportPdf(
     products: rawProducts,
   };
   await processRawSheets(supabase, quotation.id, [sheet], settings);
+
+  // メトリクス記録 + ゴールデンテスト保存（失敗しても本処理は続行）
+  const promptVersion = await getActivePromptVersion(supabase);
+  await recordImportMetrics(supabase, {
+    jobId: job.id,
+    quotationId: quotation.id,
+    sourceType: 'pdf',
+    ocrConfidence: ocrConfidence,
+    promptVersion,
+    rawSheets: [sheet],
+  }).catch((e) => console.warn('[import-pdf] メトリクス記録失敗:', e));
+
+  if (ocrConfidence !== null && ocrConfidence > 0) {
+    await maybeAddGoldenTest(supabase, {
+      quotationId: quotation.id,
+      jobId: job.id,
+      ocrConfidence,
+      rawProducts,
+      fileStoragePath: storagePath,
+      fileMimeType: 'application/pdf',
+      makerName,
+    }).catch((e) => console.warn('[import-pdf] ゴールデンテスト保存失敗:', e));
+  }
 }

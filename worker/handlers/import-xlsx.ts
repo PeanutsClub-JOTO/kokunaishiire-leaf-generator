@@ -21,6 +21,7 @@ import {
   type SizingV2Result,
   type SizingV2Settings,
 } from '../../lib/calc/sizing-v2';
+import { recordImportMetrics } from '../../lib/import/ocr-metrics';
 
 type Supabase = SupabaseClient<Database>;
 type Job = Database['public']['Tables']['jobs']['Row'];
@@ -342,6 +343,14 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
 
   const processedProducts = await processRawSheets(supabase, quotation.id, rawSheets, settings);
   const legacyXls = isLegacyXls(buffer);
+
+  // メトリクス記録（失敗しても本処理は続行）
+  await recordImportMetrics(supabase, {
+    jobId: job.id,
+    quotationId: quotation.id,
+    sourceType: legacyXls ? 'xls' : 'xlsx',
+    rawSheets,
+  }).catch((e) => console.warn('[import-xlsx] メトリクス記録失敗:', e));
 
   // Excel 画像抽出（失敗してもジョブは続行）
   // 旧形式 .xls（OLE2バイナリ）と .xlsx（zip）で抽出方法を自動判別する

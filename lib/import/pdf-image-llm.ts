@@ -72,41 +72,35 @@ const PRODUCT_SCHEMA = {
   required: ['confidence', 'products'],
 };
 
-const SYSTEM_PROMPT = `
-あなたは食品メーカーの見積書（帳票）から商品情報を正確に抽出するアシスタントです。
-
-【重要ルール】
-1. 「単価」列は仕入原価（原価）を意味します。上代（希望小売価格）とは別物です。
-   単価 < 上代 となるのが正常です。逆転している場合は注意。
-2. 商品番号は丸数字（①②③...⑫）で表記されます。数値に変換してください（①=1, ②=2...）。
-3. 入数は "A×B" 形式（例: "15×4", "12×1"）で記載されます。
-4. 最小ロットは "N甲" または "Nケース" で記載されます。
-5. 販売期間は "YYYY.MM.DD〜YYYY.MM.DD" 形式です。
-6. 賞味期間は日数で記載されます（例: "240日（240日）"）。
-7. 確信が持てない項目は null にし、confidence を下げてください。
-8. 商品データが存在しない行（空行）はスキップしてください。
-`.trim();
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  DEFAULT_USER_PROMPT,
+} from './ocr-prompt-store';
 
 /**
  * 画像PDF（またはPDFを画像変換したもの）から商品情報をGeminiで抽出する
  *
  * @param imageBase64 base64エンコードされた画像データ
  * @param mimeType 画像のMIMEタイプ
+ * @param promptOverride DBから取得したカスタムプロンプト（未指定時はデフォルト）
  */
 export async function extractFromImagePdf(
   imageBase64: string,
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf' = 'image/jpeg',
+  promptOverride?: { systemPrompt: string; userPrompt: string },
 ): Promise<LlmExtractResult> {
   const client = getGeminiClient();
+  const systemPrompt = promptOverride?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  const userPrompt = promptOverride?.userPrompt ?? DEFAULT_USER_PROMPT;
 
   const result = await withTimeout(
     client.generate(
-      '添付の見積書から、全商品の情報をJSONで抽出してください。',
+      userPrompt,
       {
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt,
         images: [{ mimeType, data: imageBase64 }],
         responseSchema: PRODUCT_SCHEMA,
-        temperature: 0.1, // 低温で確実な抽出
+        temperature: 0.1,
       },
     ),
     timeoutMsFromEnv('PDF_OCR_TIMEOUT_MS', 90_000),
