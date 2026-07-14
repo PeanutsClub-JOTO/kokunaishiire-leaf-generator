@@ -90,7 +90,7 @@ describe('matchImageToProduct', () => {
     expect(match).toEqual({ productId: 'p2', reason: 'nearest_row', rowDistance: 0 });
   });
 
-  it('matches horizontal catalog images by nearest column when products share a row', () => {
+  it('matches horizontal catalog images to the JAN/name block below the image', () => {
     const horizontalProducts: ProductImageTarget[] = [
       { id: 'p1', sheetName: 'Sheet1', no: null, sourceRow: 12, sourceCol: 2, sourceIndex: 0 },
       { id: 'p2', sheetName: 'Sheet1', no: null, sourceRow: 12, sourceCol: 12, sourceIndex: 1 },
@@ -105,6 +105,23 @@ describe('matchImageToProduct', () => {
     );
 
     expect(match).toEqual({ productId: 'p3', reason: 'nearest_row', rowDistance: 7 });
+  });
+
+  it('prefers the lower JAN/name block over a closer previous row in horizontal catalogs', () => {
+    const horizontalProducts: ProductImageTarget[] = [
+      { id: 'top1', sheetName: 'Sheet1', no: null, sourceRow: 11, sourceCol: 10, sourceIndex: 0 },
+      { id: 'top2', sheetName: 'Sheet1', no: null, sourceRow: 11, sourceCol: 18, sourceIndex: 1 },
+      { id: 'next1', sheetName: 'Sheet1', no: null, sourceRow: 20, sourceCol: 10, sourceIndex: 2 },
+      { id: 'next2', sheetName: 'Sheet1', no: null, sourceRow: 20, sourceCol: 18, sourceIndex: 3 },
+    ];
+
+    const match = matchImageToProduct(
+      img({ anchorRow: 14, anchorCol: 11, mappingStrategy: 'inline_anchor' }),
+      horizontalProducts,
+      { preferSequentialFallback: true },
+    );
+
+    expect(match).toEqual({ productId: 'next1', reason: 'nearest_row', rowDistance: 6 });
   });
 
   it('does not fall back to sheet order when positioned catalog images are too far away', () => {
@@ -128,7 +145,7 @@ describe('matchImageToProduct', () => {
 
   it('does not move a positioned duplicate image to the next available product', () => {
     const horizontalProducts: ProductImageTarget[] = [
-      { id: 'p1', sheetName: 'Sheet1', no: null, sourceRow: 11, sourceCol: 26, sourceIndex: 0 },
+      { id: 'p1', sheetName: 'Sheet1', no: null, sourceRow: 20, sourceCol: 26, sourceIndex: 0 },
       { id: 'p2', sheetName: 'Sheet1', no: null, sourceRow: 20, sourceCol: 34, sourceIndex: 1 },
     ];
 

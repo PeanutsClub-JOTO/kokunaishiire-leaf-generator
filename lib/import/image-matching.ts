@@ -20,6 +20,7 @@ type MatchOptions = {
   excludeProductIds?: ReadonlySet<string>;
   maxInlineRowDistance?: number;
   maxGridRowDistance?: number;
+  maxTextBlockRowDistance?: number;
   maxPositionRowDistance?: number;
   maxPositionColDistance?: number;
   maxInlineRowsBeforeFirstProduct?: number;
@@ -137,12 +138,71 @@ function matchByNearestPosition(
   };
 }
 
+function isHorizontalCatalog(products: ProductImageTarget[]): boolean {
+  const colsByRow = new Map<number, Set<number>>();
+  for (const product of products) {
+    if (
+      product.sourceRow === null ||
+      product.sourceRow === undefined ||
+      product.sourceCol === null ||
+      product.sourceCol === undefined
+    ) {
+      continue;
+    }
+    const cols = colsByRow.get(product.sourceRow) ?? new Set<number>();
+    cols.add(product.sourceCol);
+    colsByRow.set(product.sourceRow, cols);
+  }
+  return [...colsByRow.values()].some((cols) => cols.size >= 2);
+}
+
+function matchByTextBlockBelow(
+  image: ExtractedImage,
+  products: ProductImageTarget[],
+  maxRowDistance: number,
+  maxColDistance: number,
+): ProductImageMatch | null {
+  const candidates = products
+    .filter(
+      (p) =>
+        p.sourceRow !== null &&
+        p.sourceRow !== undefined &&
+        p.sourceCol !== null &&
+        p.sourceCol !== undefined,
+    )
+    .map((p) => {
+      const rowDistance = (p.sourceRow as number) - image.anchorRow;
+      const colDistance = Math.abs((p.sourceCol as number) - image.anchorCol);
+      return { product: p, rowDistance, colDistance };
+    })
+    .filter(
+      (x) =>
+        x.rowDistance >= 0 &&
+        x.rowDistance <= maxRowDistance &&
+        x.colDistance <= maxColDistance,
+    )
+    .sort(
+      (a, b) =>
+        a.colDistance - b.colDistance ||
+        a.rowDistance - b.rowDistance ||
+        a.product.sourceIndex - b.product.sourceIndex,
+    );
+
+  const best = candidates[0];
+  if (!best) return null;
+  return {
+    productId: best.product.id,
+    reason: 'nearest_row',
+    rowDistance: best.rowDistance,
+  };
+}
+
 /**
  * Excel埋め込み画像を商品へ対応付ける。
  *
  * 優先順:
  * - 従来の標準テンプレ: シート名 + 商品No
- * - 横並びカタログ: 画像アンカーの行列に近い商品セル
+ * - 横並びカタログ: 画像の下にあるJAN/商品名セル
  * - No列がない標準テンプレ: シート内の商品順
  * - 表の行内/横にある画像: 画像アンカー行に最も近い商品行
  */
@@ -164,6 +224,7 @@ export function matchImageToProduct(
 
   const inlineMax = options.maxInlineRowDistance ?? 4;
   const gridMax = options.maxGridRowDistance ?? 2;
+  const textBlockRowMax = options.maxTextBlockRowDistance ?? 12;
   const positionRowMax = options.maxPositionRowDistance ?? 10;
   const positionColMax = options.maxPositionColDistance ?? 8;
   const preferSequentialFallback =
@@ -171,6 +232,18 @@ export function matchImageToProduct(
   const hasPositionedCandidates = sheetCandidates.some(
     (p) => p.sourceRow !== null && p.sourceRow !== undefined && p.sourceCol !== null && p.sourceCol !== undefined,
   );
+  const horizontalCatalog = hasPositionedCandidates && isHorizontalCatalog(sheetCandidates);
+
+  if (horizontalCatalog) {
+    const textBlockMatch = matchByTextBlockBelow(
+      image,
+      sheetCandidates,
+      textBlockRowMax,
+      positionColMax,
+    );
+    if (textBlockMatch && options.excludeProductIds?.has(textBlockMatch.productId)) return null;
+    return textBlockMatch;
+  }
 
   const byPosition = matchByNearestPosition(
     image,
