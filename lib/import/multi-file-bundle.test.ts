@@ -19,6 +19,7 @@ function row(overrides: Partial<RawProductRow>): RawProductRow {
     retail_price: null,
     cost: null,
     jan_code: null,
+    product_code: null,
     shelf_life_days: null,
     sales_period_raw: null,
     sales_period_start: null,
@@ -157,6 +158,73 @@ describe('multi-file workbook bundle', () => {
     expect(result.productImages).toHaveLength(1);
     expect(result.productImages[0].sourceIndex).toBe(2);
     expect(result.productImages[0].image.mediaPath).toBe('image-for-c');
+  });
+
+  it('fills missing catalog details and carries images by product code when JAN is missing', () => {
+    const quote = sheet([
+      row({
+        product_name: 'チョコクッキー',
+        product_code: 'AB-1234',
+        cost: 80,
+      }),
+    ]);
+    const catalog = sheet([
+      row({
+        product_name: 'チョコクッキー',
+        product_code: ' ab 1234 ',
+        shelf_life_days: 180,
+        source_row: 12,
+        source_col: 2,
+      }),
+    ]);
+
+    const result = mergeWorkbookBundle([
+      { fileName: '見積書.xlsx', sheets: [quote], images: [] },
+      {
+        fileName: '商品リスト.xlsx',
+        sheets: [catalog],
+        images: [image('code-match-image', null, { anchorRow: 12, anchorCol: 2 })],
+      },
+    ]);
+
+    expect(result.sheets[0].products).toHaveLength(1);
+    expect(result.sheets[0].products[0].shelf_life_days).toBe(180);
+    expect(result.productImages).toHaveLength(1);
+    expect(result.productImages[0].image.mediaPath).toBe('code-match-image');
+  });
+
+  it('does not merge same-name products when both sides have different product codes', () => {
+    const result = mergeWorkbookBundle([
+      {
+        fileName: '見積書.xlsx',
+        sheets: [
+          sheet([
+            row({
+              product_name: 'ミックスナッツ',
+              product_code: 'A-001',
+              cost: 100,
+            }),
+          ]),
+        ],
+        images: [],
+      },
+      {
+        fileName: '商品リスト.xlsx',
+        sheets: [
+          sheet([
+            row({
+              product_name: 'ミックスナッツ',
+              product_code: 'B-001',
+              shelf_life_days: 180,
+            }),
+          ]),
+        ],
+        images: [],
+      },
+    ]);
+
+    expect(result.sheets[0].products).toHaveLength(1);
+    expect(result.sheets[0].products[0].shelf_life_days).toBeNull();
   });
 
   it('does not carry images through fuzzy name-only support matches', () => {

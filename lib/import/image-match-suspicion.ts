@@ -83,7 +83,7 @@ export function analyzeImageMatchSuspicion(
       reasons.add('weak_sheet_order_match');
     }
 
-    if (!product.no && !product.janCode) {
+    if (!product.no && !product.janCode && !product.productCode) {
       reasons.add('missing_strong_product_anchor');
     }
   }

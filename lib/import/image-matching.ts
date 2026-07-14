@@ -5,6 +5,7 @@ export type ProductImageTarget = {
   sheetName: string | null;
   no: number | null;
   janCode?: string | null;
+  productCode?: string | null;
   sourceRow?: number | null;
   sourceCol?: number | null;
   sourceIndex: number;

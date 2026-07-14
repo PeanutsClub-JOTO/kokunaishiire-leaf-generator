@@ -48,7 +48,8 @@ function tablesToRawRows(tables: string[][][]): RawProductRow[] {
     const minLotIdx   = colIndex(['最小ロット', '最小ﾛｯﾄ']);
     const costIdx     = colIndex(['単価', '原価', '仕入']);
     const retailIdx   = colIndex(['上代', '希望小売', '定価']);
-    const janIdx      = colIndex(['JAN', 'EAN']);
+    const janIdx      = colIndex(['JAN', 'EAN', 'GTIN']);
+    const productCodeIdx = colIndex(['商品コード', '商品CD', '品番', '品目コード', '品コード', 'メーカー品番', '型番', '管理番号']);
     const shelfIdx    = colIndex(['賞味期間', '賞味期限', '消費期限']);
     const salesIdx    = colIndex(['販売期間', '取扱期間']);
     const noteIdx     = colIndex(['備考', '特記']);
@@ -76,6 +77,7 @@ function tablesToRawRows(tables: string[][][]): RawProductRow[] {
           retail_price: num(row, retailIdx),
           cost: num(row, costIdx),
           jan_code: cell(row, janIdx),
+          product_code: cell(row, productCodeIdx),
           shelf_life_raw: cell(row, shelfIdx),
           sales_period_raw: cell(row, salesIdx),
           note: cell(row, noteIdx),
@@ -152,6 +154,7 @@ export async function handleImportPdf(
           retail_price: p.retail_price ?? null,
           cost: p.cost ?? null,
           jan_code: p.jan_code ?? null,
+          product_code: p.product_code ?? null,
           shelf_life_raw: p.shelf_life_raw ?? null,
           sales_period_raw: p.sales_period_raw ?? null,
           note: p.note ?? null,

@@ -21,7 +21,8 @@ const HEADER_ALIASES: Record<string, string[]> = {
   min_lot:     ['最小ロット', '最小ﾛｯﾄ', '最小lot', 'ﾐﾆﾏﾑﾛｯﾄ', '発注単位', '発注ロット', 'ロット', 'MOQ', '最小発注数'],
   retail_price:['上代', '上　代', '希望小売価格', 'メーカー希望小売価格', '定価', '参考売価', '推奨売価', '売価'],
   cost:        ['単価', '単価（税抜）', '単価(税込)', '原価', '仕入単価', '仕入価格', '仕切', '仕切価格', '納価', '納品価格', 'NET価格', 'ＮＥＴ価格', '卸単価'],
-  jan_code:    ['JANコード', 'JAN', 'JANｺｰﾄﾞ', 'EAN'],
+  jan_code:    ['JANコード', 'JAN', 'JANｺｰﾄﾞ', 'EAN', 'EANコード', 'GTIN', 'GTINコード'],
+  product_code:['商品コード', '商品CD', '商品ＣＤ', '品番', '品目コード', '品コード', 'メーカー品番', '型番', '管理番号'],
   shelf_life:  ['賞味期間', '賞味期限', '賞味', '消費期限', '賞味期間(夏期)', '賞味期間（夏期）'],
   sales_period:['販売期間', '取扱期間', '販売期間（予定）'],
   note:        ['備考', '特記事項', 'Note'],
@@ -42,6 +43,7 @@ export type RawProductRow = {
   retail_price:     number | null;
   cost:             number | null;
   jan_code:         string | null;
+  product_code?:    string | null;   // 商品コード・品番など。DB保存前の資料間マッチング用
   shelf_life_days:  number | null;
   sales_period_raw: string | null;
   sales_period_start: Date | null;
@@ -186,6 +188,7 @@ export type RawProductFields = {
   retail_price:     number | null;
   cost:             number | null;
   jan_code:         string | null;
+  product_code?:    string | null;
   shelf_life_raw:   string | null;
   sales_period_raw: string | null;
   note:             string | null;
@@ -200,6 +203,28 @@ function normalizeJanCode(raw: string | null): string | null {
   if (!raw) return null;
   const digits = raw.normalize('NFKC').replace(/\D/g, '');
   return digits.length >= 8 ? digits : null;
+}
+
+export function normalizeProductCode(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const stripped = String(raw)
+    .normalize('NFKC')
+    .trim()
+    .replace(
+      /^(商品コード|商品CD|品番|品目コード|品コード|メーカー品番|型番|管理番号)\s*[:：]?\s*/iu,
+      '',
+    );
+  const compact = stripped
+    .replace(/\s+/g, '')
+    .replace(/[‐‑‒–—―ー−]/g, '-')
+    .trim();
+  if (!compact) return null;
+
+  const digitLike = compact.replace(/\D/g, '');
+  if (/^[0-9-]+$/.test(compact) && digitLike.length >= 2) return digitLike;
+
+  const code = compact.toUpperCase().replace(/[^0-9A-Z]/g, '');
+  return code.length >= 2 ? code : null;
 }
 
 /**
@@ -263,6 +288,7 @@ export function normalizeRawProduct(f: RawProductFields): RawProductRow {
     retail_price: f.retail_price,
     cost: f.cost,
     jan_code: normalizeJanCode(f.jan_code),
+    product_code: normalizeProductCode(f.product_code),
     shelf_life_days: shelfResult.parseError ? null : shelfResult.days,
     sales_period_raw: f.sales_period_raw,
     sales_period_start: salesPeriodResult.start,
@@ -388,6 +414,7 @@ function detectHeaderRow(ws: XLSX.WorkSheet): {
       'retail_price',
       'cost',
       'jan_code',
+      'product_code',
       'shelf_life',
       'sales_period',
       'note',
@@ -399,6 +426,7 @@ function detectHeaderRow(ws: XLSX.WorkSheet): {
       (colMap as Record<string, number | undefined>).cost !== undefined ||
       (colMap as Record<string, number | undefined>).retail_price !== undefined ||
       (colMap as Record<string, number | undefined>).jan_code !== undefined ||
+      (colMap as Record<string, number | undefined>).product_code !== undefined ||
       (colMap as Record<string, number | undefined>).irisu !== undefined;
 
     // 商品名列を必須にし、本文中の「卸単価」などの注意書きをヘッダー扱いしない。
@@ -522,8 +550,16 @@ function extractProductIdentity(
 
 function extractJanFromText(text: string | null): string | null {
   if (!text) return null;
-  const m = text.normalize('NFKC').match(/JAN\s*[:：]?\s*([0-9\-\s]{8,18})/i);
+  const m = text.normalize('NFKC').match(/(?:JAN|EAN|GTIN)\s*[:：]?\s*([0-9\-\s]{8,18})/i);
   return normalizeJanCode(m?.[1] ?? null);
+}
+
+function extractProductCodeFromText(text: string | null): string | null {
+  if (!text) return null;
+  const m = text
+    .normalize('NFKC')
+    .match(/(?:商品コード|商品CD|品番|品目コード|品コード|メーカー品番|型番|管理番号)\s*[:：]?\s*([0-9A-Z][0-9A-Z._\-\s]{1,40})/i);
+  return normalizeProductCode(m?.[1] ?? null);
 }
 
 function extractIrisuFromInfo(text: string): string | null {
@@ -556,8 +592,10 @@ function extractCatalogProducts(ws: XLSX.WorkSheet): RawProductRow[] {
 
   for (let r = range.s.r; r <= range.e.r; r++) {
     for (let c = range.s.c; c <= range.e.c; c++) {
-      const jan = extractJanFromText(cellStr(ws, XLSX.utils.encode_cell({ r, c })));
-      if (!jan) continue;
+      const identityCell = cellStr(ws, XLSX.utils.encode_cell({ r, c }));
+      const jan = extractJanFromText(identityCell);
+      const productCode = extractProductCodeFromText(identityCell);
+      if (!jan && !productCode) continue;
 
       let rawName: string | null = null;
       const infoParts: string[] = [];
@@ -579,7 +617,7 @@ function extractCatalogProducts(ws: XLSX.WorkSheet): RawProductRow[] {
       const retailAndName = splitRetailPrefix(rawName);
       if (!retailAndName.productName || isNonProductText(retailAndName.productName)) continue;
 
-      const seenKey = `${jan}:${compactText(retailAndName.productName)}`;
+      const seenKey = `${jan ?? productCode}:${compactText(retailAndName.productName)}`;
       if (seen.has(seenKey)) continue;
       seen.add(seenKey);
 
@@ -594,6 +632,7 @@ function extractCatalogProducts(ws: XLSX.WorkSheet): RawProductRow[] {
         retail_price: retailAndName.retailPrice,
         cost: null,
         jan_code: jan,
+        product_code: productCode,
         shelf_life_raw: extractShelfFromInfo(infoText),
         sales_period_raw: null,
         note: null,
@@ -678,6 +717,7 @@ function extractSheet(ws: XLSX.WorkSheet, sheetName: string): RawSheetData {
       retail_price: getNum('retail_price'),
       cost: getNum('cost'),
       jan_code: get('jan_code'),
+      product_code: get('product_code'),
       shelf_life_raw: get('shelf_life'),
       sales_period_raw: get('sales_period'),
       note: get('note'),

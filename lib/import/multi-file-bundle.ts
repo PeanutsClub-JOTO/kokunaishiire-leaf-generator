@@ -1,6 +1,6 @@
 import type { ExtractedImage } from './xlsx-images';
 import { matchImageToProduct, type ProductImageTarget } from './image-matching';
-import type { RawProductRow, RawSheetData } from './xlsx-cells';
+import { normalizeProductCode, type RawProductRow, type RawSheetData } from './xlsx-cells';
 
 export type WorkbookRole = 'quotation' | 'catalog' | 'order' | 'reference';
 
@@ -61,6 +61,28 @@ function productJan(row: RawProductRow): string | null {
   return digits.length >= 8 ? digits : null;
 }
 
+function identityKeys(row: RawProductRow): string[] {
+  const keys: string[] = [];
+  const jan = productJan(row);
+  if (jan) keys.push(`jan:${jan}`);
+
+  const productCode = normalizeProductCode(row.product_code);
+  if (productCode) {
+    keys.push(`code:${productCode}`);
+    if (/^\d{8,18}$/.test(productCode)) keys.push(`jan:${productCode}`);
+  }
+
+  return [...new Set(keys)];
+}
+
+function canUseNameMatch(source: RawProductRow, target: RawProductRow): boolean {
+  const sourceKeys = identityKeys(source);
+  const targetKeys = identityKeys(target);
+  if (sourceKeys.length === 0 || targetKeys.length === 0) return true;
+  const targetKeySet = new Set(targetKeys);
+  return sourceKeys.some((key) => targetKeySet.has(key));
+}
+
 function cloneRow(row: RawProductRow): RawProductRow {
   return {
     ...row,
@@ -87,6 +109,7 @@ function mergeRow(base: RawProductRow, incoming: RawProductRow): void {
   fill('retail_price');
   fill('cost');
   fill('jan_code');
+  fill('product_code');
   fill('shelf_life_days');
   fill('sales_period_raw');
   fill('sales_period_start');
@@ -105,14 +128,14 @@ export function classifyWorkbookRole(fileName: string, sheets: RawSheetData[]): 
   const products = sheets.flatMap((sheet) => sheet.products);
   const productCount = products.length;
   const costCount = products.filter((p) => p.cost !== null && p.cost > 0).length;
-  const janCount = products.filter((p) => productJan(p)).length;
+  const identityCount = products.filter((p) => identityKeys(p).length > 0).length;
   const shelfCount = products.filter((p) => p.shelf_life_days !== null).length;
 
   if (/発注|注文/.test(normalizedName)) return 'order';
   if (/見積|御見積|お見積/.test(normalizedName)) return 'quotation';
   if (/商品リスト|商品一覧|リスト/.test(normalizedName)) return 'catalog';
   if (costCount > 0) return 'quotation';
-  if (productCount > 0 && (janCount >= Math.ceil(productCount / 2) || shelfCount > 0)) {
+  if (productCount > 0 && (identityCount >= Math.ceil(productCount / 2) || shelfCount > 0)) {
     return 'catalog';
   }
   return 'reference';
@@ -130,6 +153,7 @@ function imageBySourceProduct(
         sheetName: sheet.sheet_name,
         no: product.no,
         janCode: product.jan_code,
+        productCode: product.product_code,
         sourceRow: product.source_row ?? null,
         sourceCol: product.source_col ?? null,
         sourceIndex,
@@ -180,18 +204,23 @@ function sourceProducts(source: WorkbookBundleSource, role: WorkbookRole): Sourc
 function findCanonicalIndex(
   source: SourceProduct,
   canonical: CanonicalProduct[],
-  janMap: Map<string, number>,
+  identityMap: Map<string, number>,
+  ambiguousIdentityKeys: Set<string>,
   nameMap: Map<string, number>,
   ambiguousNames: Set<string>,
   allowExactNameMatch: boolean,
   allowFuzzyNameMatch: boolean,
 ): number | null {
-  const jan = productJan(source.sourceRow);
-  if (jan && janMap.has(jan)) return janMap.get(jan) ?? null;
+  for (const key of identityKeys(source.sourceRow)) {
+    if (ambiguousIdentityKeys.has(key)) continue;
+    const hit = identityMap.get(key);
+    if (hit !== undefined) return hit;
+  }
 
   const name = cleanName(source.sourceRow.product_name);
   if (allowExactNameMatch && name && !ambiguousNames.has(name) && nameMap.has(name)) {
-    return nameMap.get(name) ?? null;
+    const hit = nameMap.get(name) ?? null;
+    if (hit !== null && canUseNameMatch(source.sourceRow, canonical[hit].row)) return hit;
   }
 
   if (!allowFuzzyNameMatch) return null;
@@ -201,6 +230,7 @@ function findCanonicalIndex(
     const existingName = cleanName(canonical[i].row.product_name);
     if (!name || !existingName) continue;
     if (ambiguousNames.has(existingName)) continue;
+    if (!canUseNameMatch(source.sourceRow, canonical[i].row)) continue;
     if (name.includes(existingName) || existingName.includes(name)) return i;
   }
 
@@ -208,9 +238,8 @@ function findCanonicalIndex(
 }
 
 function hasStrongImageIdentity(incoming: RawProductRow, base: RawProductRow): boolean {
-  const incomingJan = productJan(incoming);
-  const baseJan = productJan(base);
-  if (incomingJan && baseJan && incomingJan === baseJan) return true;
+  const baseIdentityKeys = new Set(identityKeys(base));
+  if (identityKeys(incoming).some((key) => baseIdentityKeys.has(key))) return true;
 
   const incomingName = cleanName(incoming.product_name);
   const baseName = cleanName(base.product_name);
@@ -220,14 +249,22 @@ function hasStrongImageIdentity(incoming: RawProductRow, base: RawProductRow): b
 function rememberCanonical(
   index: number,
   canonical: CanonicalProduct[],
-  janMap: Map<string, number>,
+  identityMap: Map<string, number>,
+  ambiguousIdentityKeys: Set<string>,
   nameMap: Map<string, number>,
   ambiguousNames: Set<string>,
 ): void {
   const row = canonical[index].row;
-  const jan = productJan(row);
   const name = cleanName(row.product_name);
-  if (jan) janMap.set(jan, index);
+  for (const key of identityKeys(row)) {
+    const current = identityMap.get(key);
+    if (current !== undefined && current !== index) {
+      identityMap.delete(key);
+      ambiguousIdentityKeys.add(key);
+      continue;
+    }
+    if (!ambiguousIdentityKeys.has(key)) identityMap.set(key, index);
+  }
   if (!name) return;
   const current = nameMap.get(name);
   if (current !== undefined && current !== index) {
@@ -266,7 +303,8 @@ export function mergeWorkbookBundle(sources: WorkbookBundleSource[]): WorkbookBu
   );
 
   const canonical: CanonicalProduct[] = [];
-  const janMap = new Map<string, number>();
+  const identityMap = new Map<string, number>();
+  const ambiguousIdentityKeys = new Set<string>();
   const nameMap = new Map<string, number>();
   const ambiguousNames = new Set<string>();
 
@@ -274,7 +312,8 @@ export function mergeWorkbookBundle(sources: WorkbookBundleSource[]): WorkbookBu
     const existing = findCanonicalIndex(
       product,
       canonical,
-      janMap,
+      identityMap,
+      ambiguousIdentityKeys,
       nameMap,
       ambiguousNames,
       false,
@@ -283,7 +322,7 @@ export function mergeWorkbookBundle(sources: WorkbookBundleSource[]): WorkbookBu
     if (existing !== null) {
       mergeRow(canonical[existing].row, product.sourceRow);
       if (!canonical[existing].image && product.image) canonical[existing].image = product.image;
-      rememberCanonical(existing, canonical, janMap, nameMap, ambiguousNames);
+      rememberCanonical(existing, canonical, identityMap, ambiguousIdentityKeys, nameMap, ambiguousNames);
       continue;
     }
 
@@ -294,14 +333,15 @@ export function mergeWorkbookBundle(sources: WorkbookBundleSource[]): WorkbookBu
       role: product.role,
       image: product.image,
     });
-    rememberCanonical(index, canonical, janMap, nameMap, ambiguousNames);
+    rememberCanonical(index, canonical, identityMap, ambiguousIdentityKeys, nameMap, ambiguousNames);
   }
 
   for (const product of supportProducts) {
     const existing = findCanonicalIndex(
       product,
       canonical,
-      janMap,
+      identityMap,
+      ambiguousIdentityKeys,
       nameMap,
       ambiguousNames,
       true,
@@ -314,7 +354,7 @@ export function mergeWorkbookBundle(sources: WorkbookBundleSource[]): WorkbookBu
     if (!canonical[existing].image && product.image && canCarryImage) {
       canonical[existing].image = product.image;
     }
-    rememberCanonical(existing, canonical, janMap, nameMap, ambiguousNames);
+    rememberCanonical(existing, canonical, identityMap, ambiguousIdentityKeys, nameMap, ambiguousNames);
   }
 
   const sheetGroups = new Map<string, CanonicalProduct[]>();

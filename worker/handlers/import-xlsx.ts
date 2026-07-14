@@ -167,6 +167,7 @@ export async function processRawSheets(
         sheetName: rawSheet.sheet_name,
         no: db.no,
         janCode: db.jan_code,
+        productCode: raw.product_code ?? null,
         sourceRow: raw.source_row ?? null,
         sourceCol: raw.source_col ?? null,
         sourceIndex: i,

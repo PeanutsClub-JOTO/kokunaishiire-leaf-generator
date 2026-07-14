@@ -331,6 +331,7 @@ describe('extractXlsxCells', () => {
       ['JANｺｰﾄﾞ'],     // 半角カナ混在
       ['ＪＡＮコード'], // 全角英字→半角正規化で JANコード に一致
       ['EAN'],
+      ['GTINコード'],
     ])('エイリアス "%s"', (alias) => {
       const data = [
         ['No.', '品名', alias],
@@ -339,6 +340,26 @@ describe('extractXlsxCells', () => {
       const buf = createMockXlsxBuffer(data);
       const result = extractXlsxCells(buf);
       expect(result[0].products[0].jan_code).toBe('4901234567890');
+    });
+  });
+
+  describe('商品コード列 - すべてのエイリアスでコードを取得できる', () => {
+    it.each([
+      ['商品コード'],
+      ['商品CD'],
+      ['品番'],
+      ['品目コード'],
+      ['メーカー品番'],
+      ['型番'],
+      ['管理番号'],
+    ])('エイリアス "%s"', (alias) => {
+      const data = [
+        ['No.', '品名', alias],
+        ['1', 'テスト商品', ' AB-1234 '],
+      ];
+      const buf = createMockXlsxBuffer(data);
+      const result = extractXlsxCells(buf);
+      expect(result[0].products[0].product_code).toBe('AB1234');
     });
   });
 

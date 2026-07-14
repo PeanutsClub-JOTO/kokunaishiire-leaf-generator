@@ -20,8 +20,9 @@ export const DEFAULT_SYSTEM_PROMPT = `
 4. 最小ロットは "N甲" または "Nケース" で記載されます。
 5. 販売期間は "YYYY.MM.DD〜YYYY.MM.DD" 形式です。
 6. 賞味期間は日数で記載されます（例: "240日（240日）"）。
-7. 確信が持てない項目は null にし、confidence を下げてください。
-8. 商品データが存在しない行（空行）はスキップしてください。
+7. JAN/EAN/GTINは jan_code、商品コード・品番・メーカー品番・型番は product_code として抽出してください。
+8. 確信が持てない項目は null にし、confidence を下げてください。
+9. 商品データが存在しない行（空行）はスキップしてください。
 `.trim();
 
 export const DEFAULT_USER_PROMPT = '添付の見積書から、全商品の情報をJSONで抽出してください。';

@@ -18,6 +18,7 @@ export type RawProductFromLlm = {
   retail_price: number | null;
   cost: number | null;
   jan_code: string | null;
+  product_code?: string | null;
   shelf_life_raw: string | null;
   sales_period_raw: string | null;
   note: string | null;
@@ -56,6 +57,10 @@ const PRODUCT_SCHEMA = {
               '単価＝仕入原価（注意: "単価"列は原価を意味する。上代より必ず小さい）',
           },
           jan_code: { type: 'string', description: 'JANコード' },
+          product_code: {
+            type: 'string',
+            description: '商品コード・品番・メーカー品番など、JAN以外の商品識別コード',
+          },
           shelf_life_raw: {
             type: 'string',
             description: '賞味期間（例: "240日（240日）"）',
