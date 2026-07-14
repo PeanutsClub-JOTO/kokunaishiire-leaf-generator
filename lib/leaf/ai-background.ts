@@ -105,6 +105,14 @@ ${assort ? `アソート構成（${names.length || d.itemCount || 2}種）: ${(n
 - キャッチコピーを後から載せられる明るい余白を上部または右上周辺に自然に残す。
 - 枠、白いカード、吹き出し、UI風の角丸ボックスは作らない。
 
+【最重要: 商品名から具体的な着想を得ること】
+- 下記のカテゴリ別の例はあくまで参考。カテゴリが「商品」など一般的にしか判定できていない場合や、
+  カテゴリ例に当てはまらない商品（惣菜・肉・麺・米飯・珍味など）の場合は、
+  必ず掲載品名（${d.leafName}）に含まれる具体的な食材名・調理法・シーンを直接読み取り、
+  それに沿った世界観を発想すること。カテゴリ例をそのまま流用して無関係な雰囲気にしない。
+- 例: 「から揚げ」「チキン」など揚げ物・肉料理系なら、湯気・香ばしい揚げ色・屋台や夜祭りの熱気など、
+  食欲をそそる具体的なビジュアルにする。抽象的な色ストライプやパターンだけで済ませない。
+
 ${assort ? `【アソート背景の方針】
 - 1つの商品だけを強く連想させず、複数種類が入った詰め合わせ感を背景で表現する。
 - 構成商品の味・色・素材感をバランスよく散らす。
@@ -145,7 +153,9 @@ async function generateDynamicPrompt(d: BgInput): Promise<string> {
 - フルーツゼリー: Crystal clear water droplets splashing around fresh sliced tropical fruits, vibrant jewel tones, refreshing summer vibe.
 - チョコ・スイーツ: Melting dark chocolate drizzle over creamy pastel surface, scattered cocoa powder, luxurious and indulgent atmosphere, warm studio lighting.
 - 塩系・いか: Ocean breeze aesthetic, crinkled metallic silver texture, scattered sea salt crystals, cool blue-gray palette.
-- 飲料・さっぱり系: Sparkling water bubbles rising through clear blue, mint leaves and ice cubes floating, ultra-refreshing.`;
+- 飲料・さっぱり系: Sparkling water bubbles rising through clear blue, mint leaves and ice cubes floating, ultra-refreshing.
+- チキン・から揚げ・焼き鳥などの肉料理系: Sizzling golden-fried chicken at a lively Japanese night festival food stall, warm paper lanterns and string lights, rising steam and charcoal smoke, glistening crispy texture, appetizing warm orange-red palette, bustling matsuri energy.
+- たこ焼き・お好み焼き・粉物系: Steaming savory street food on a griddle, glossy sauce glaze, dancing bonito flakes, warm Japanese festival stall atmosphere, appetizing browns and reds.`;
 
   const userPrompt = `商品情報:
 商品名: ${d.leafName}

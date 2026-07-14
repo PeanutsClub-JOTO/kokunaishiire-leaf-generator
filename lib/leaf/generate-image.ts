@@ -52,6 +52,8 @@ export type LeafletImageData = {
   mainCopyOverride?: string | null;
   /** AI生成背景画像のデータURL（未設定ならCSSストライプ） */
   aiBgDataUrl?: string | null;
+  /** 保存済みAI背景画像のURL（再生成せず使い回す判定に使用） */
+  aiBackgroundUrl?: string | null;
 };
 
 export type GenerateImageResult = {
@@ -105,6 +107,9 @@ export function selectLeafTheme(data: LeafletImageData): LeafTheme {
   if (/羊羹|ようかん|和菓子|抹茶|きなこ|あんこ|餡|最中|もなか|まんじゅう|饅頭|どら焼|団子|大福|あられ|おかき|かりんとう|せんべい|煎餅|わらび|金澤|金沢/.test(text)) {
     return { className: 'theme-wagashi', label: '和菓子' };
   }
+  if (/チキン|から揚げ|唐揚げ|焼き鳥|やきとり|ジャーキー|するめ|いか|たこ焼き|お好み焼き|餃子|ソーセージ|ウインナー|ハム|肉/.test(text)) {
+    return { className: 'theme-savory', label: '惣菜' };
+  }
   if (/ポップコーン|スナック|ポテト|チップ|コーン|スティック|ナッツ|豆菓子|揚げ|しお味|塩味|うす塩|コンソメ/.test(text)) {
     return { className: 'theme-snack', label: 'スナック' };
   }
@@ -139,6 +144,14 @@ const COPY_CATEGORIES: Array<[RegExp, string]> = [
   [/チョコ|ショコラ/, 'チョコ'],
   [/グミ/, 'グミ'],
   [/アイス|シャーベット/, 'アイス'],
+  [/から揚げ|唐揚げ/, 'から揚げ'],
+  [/焼き鳥|やきとり/, '焼き鳥'],
+  [/チキン/, 'チキン'],
+  [/ジャーキー/, 'ジャーキー'],
+  [/するめ|いか/, 'いか'],
+  [/たこ焼き/, 'たこ焼き'],
+  [/お好み焼き/, 'お好み焼き'],
+  [/餃子/, '餃子'],
 ];
 
 export function detectCategory(name: string): string {

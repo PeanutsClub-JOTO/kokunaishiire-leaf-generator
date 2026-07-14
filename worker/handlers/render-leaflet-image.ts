@@ -26,6 +26,11 @@ export async function handleRenderLeafletImage(
   const category = detectCategory(leafData.leafName);
   const flavor = flavorOf(leafData.leafName);
 
+  // 背景は一度良いものが生成されたら使い回す。テキスト編集の保存のたびに
+  // ランダムな新しい背景に置き換わってしまうと、せっかく気に入った背景が
+  // 消えてしまうため、既存の ai_background_url がある場合は再生成しない。
+  const hasExistingBackground = Boolean(leafData.aiBackgroundUrl);
+
   const [freshCatchphrase, bgBuffer] = await Promise.all([
     generateCatchphrase({
       leafName: leafData.leafName,
@@ -35,16 +40,18 @@ export async function handleRenderLeafletImage(
       note: leafData.note,
       leadTime: leafData.leadTime,
     }),
-    generateBackground({
-      leafName: leafData.leafName,
-      category,
-      flavor,
-      themeLabel: theme.label,
-      itemCount: leafData.itemCount,
-      productNames: leafData.productNames,
-      // AI背景の入力にはURLのみ渡す（拡大率・位置の調整値は不要）
-      productImages: leafData.productImages.map((p) => (typeof p === 'string' ? p : p.url)),
-    }),
+    hasExistingBackground
+      ? Promise.resolve(null)
+      : generateBackground({
+          leafName: leafData.leafName,
+          category,
+          flavor,
+          themeLabel: theme.label,
+          itemCount: leafData.itemCount,
+          productNames: leafData.productNames,
+          // AI背景の入力にはURLのみ渡す（拡大率・位置の調整値は不要）
+          productImages: leafData.productImages.map((p) => (typeof p === 'string' ? p : p.url)),
+        }),
   ]);
 
   // 新規生成に成功したらDBへ保存（ワークベンチの編集欄初期値になる）。
@@ -57,14 +64,16 @@ export async function handleRenderLeafletImage(
       .eq('id', job.target_id);
   }
 
+  // 既存背景があればそのURLをそのまま再利用し、Storageへの再アップロードも行わない。
   const aiBgDataUrl = bgBuffer
     ? `data:image/png;base64,${bgBuffer.toString('base64')}`
-    : null;
-  const renderWarning = bgBuffer
-    ? null
-    : 'AI背景生成に失敗、またはAPIキー未設定のため、通常背景で生成しました。';
+    : leafData.aiBackgroundUrl ?? null;
+  const renderWarning =
+    bgBuffer || hasExistingBackground
+      ? null
+      : 'AI背景生成に失敗、またはAPIキー未設定のため、通常背景で生成しました。';
 
-  let aiBackgroundUrl: string | null = null;
+  let aiBackgroundUrl: string | null = hasExistingBackground ? leafData.aiBackgroundUrl ?? null : null;
   if (bgBuffer) {
     const bgStoragePath = `leaflets/${job.target_id}/background_${Date.now()}.png`;
     const { error: bgUploadErr } = await supabase.storage

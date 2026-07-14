@@ -102,6 +102,9 @@ const COPY_CATS: Array<[RegExp, string]> = [
   [/カステラ/, 'カステラ'], [/バウム/, 'バウムクーヘン'], [/ケーキ/, 'ケーキ'], [/クッキー/, 'クッキー'],
   [/ムース/, 'ムース'], [/プリン/, 'プリン'], [/ゼリー/, 'ゼリー'], [/最中|もなか/, '最中'],
   [/まんじゅう|饅頭/, 'まんじゅう'], [/せんべい|煎餅/, 'せんべい'], [/チョコ|ショコラ/, 'チョコ'], [/グミ/, 'グミ'],
+  [/から揚げ|唐揚げ/, 'から揚げ'], [/焼き鳥|やきとり/, '焼き鳥'], [/チキン/, 'チキン'],
+  [/ジャーキー/, 'ジャーキー'], [/するめ|いか/, 'いか'], [/たこ焼き/, 'たこ焼き'],
+  [/お好み焼き/, 'お好み焼き'], [/餃子/, '餃子'],
 ];
 function detectCat(n: string): string { for (const [re, l] of COPY_CATS) if (re.test(n)) return l; return '商品'; }
 function flavorOf(n: string): string {
@@ -130,6 +133,7 @@ function salesCopy(items: WorkbenchItem[]): string {
 }
 function selectTheme(name: string): { cls: string; label: string } {
   if (/羊羹|ようかん|和菓子|抹茶|きなこ|あんこ|最中|まんじゅう|饅頭|どら焼|団子|大福|あられ|せんべい|煎餅|カステラ|金澤|金沢/.test(name)) return { cls: 'theme-wagashi', label: '和菓子' };
+  if (/チキン|から揚げ|唐揚げ|焼き鳥|やきとり|ジャーキー|するめ|いか|たこ焼き|お好み焼き|餃子|ソーセージ|ウインナー|ハム|肉/.test(name)) return { cls: 'theme-savory', label: '惣菜' };
   if (/ポップコーン|スナック|ポテト|チップ|コーン|ナッツ|しお味|塩味/.test(name)) return { cls: 'theme-snack', label: 'スナック' };
   if (/チョコ|ショコラ|キャラメル|クッキー|ビスケット|ケーキ|バウム|ワッフル|ラスク|キャンディ|飴|グミ/.test(name)) return { cls: 'theme-sweets', label: 'スイーツ' };
   if (/レモン|ヨーグルト|ムース|プリン|涼|冷|ソーダ|ラムネ|ミント|乳酸/.test(name)) return { cls: 'theme-cool', label: 'さっぱり' };
