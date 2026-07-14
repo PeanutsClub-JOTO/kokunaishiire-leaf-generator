@@ -4,6 +4,7 @@ export type ProductImageTarget = {
   id: string;
   sheetName: string | null;
   no: number | null;
+  janCode?: string | null;
   sourceRow?: number | null;
   sourceIndex: number;
 };

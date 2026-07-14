@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
         id,
         sheetName: sheet.sheet_name,
         no: p.no,
+        janCode: p.jan_code,
         sourceRow: p.source_row ?? null,
         sourceIndex,
       });

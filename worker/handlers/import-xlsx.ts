@@ -12,6 +12,10 @@ import { extractXlsxCells, type RawSheetData } from '../../lib/import/xlsx-cells
 import { extractXlsxImages } from '../../lib/import/xlsx-images';
 import { extractXlsImages, isLegacyXls } from '../../lib/import/xls-images';
 import { matchImageToProduct, type ProductImageTarget } from '../../lib/import/image-matching';
+import {
+  analyzeImageMatchSuspicion,
+  type ImageMatchRecord,
+} from '../../lib/import/image-match-suspicion';
 import { upscaleImageBuffer } from '../../lib/leaf/upscale-image';
 import { groupProducts, type ProductForGrouping } from '../../lib/assort/grouping';
 import { type Settings, DEFAULT_SETTINGS } from '../../lib/calc/engine';
@@ -162,6 +166,7 @@ export async function processRawSheets(
         sheetId: sheet.id,
         sheetName: rawSheet.sheet_name,
         no: db.no,
+        janCode: db.jan_code,
         sourceRow: raw.source_row ?? null,
         sourceIndex: i,
       });
@@ -365,6 +370,7 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
       const usedProductIds = new Set<string>();
       const usedGridSlots = new Set<string>();
       const matchStats = { no: 0, sheet_order: 0, nearest_row: 0, unmatched: 0 };
+      const matchRecords: ImageMatchRecord[] = [];
 
       for (const img of imgResult.images) {
         const gridSlot =
@@ -388,6 +394,7 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
         usedProductIds.add(productId);
         if (gridSlot) usedGridSlots.add(gridSlot);
         matchStats[match.reason]++;
+        matchRecords.push({ image: img, match });
 
         let uploadBuffer = img.buffer;
         let contentType = img.mimeType;
@@ -419,6 +426,12 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
       console.log(
         `[import-xlsx] 画像紐付け: no=${matchStats.no} order=${matchStats.sheet_order} row=${matchStats.nearest_row} unmatched=${matchStats.unmatched}`,
       );
+      const suspicion = analyzeImageMatchSuspicion(matchRecords, processedProducts);
+      if (suspicion.suspicious) {
+        console.warn(
+          `[import-xlsx] 画像紐付けAI再判定候補: reasons=${suspicion.reasons.join(',')}`,
+        );
+      }
     }
   } catch (imgErr) {
     console.warn('[import-xlsx] Image extraction failed:', imgErr);
