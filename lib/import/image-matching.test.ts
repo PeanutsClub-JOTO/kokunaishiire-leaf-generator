@@ -62,6 +62,34 @@ describe('matchImageToProduct', () => {
     expect(match).toEqual({ productId: 'p3', reason: 'nearest_row', rowDistance: 0 });
   });
 
+  it('assigns stacked inline images below no-less product rows by sheet order', () => {
+    const noLessProducts = products.slice(0, 2).map((p) => ({ ...p, no: null }));
+    const first = matchImageToProduct(
+      img({ anchorRow: 17, anchorCol: 3, mappingStrategy: 'inline_anchor' }),
+      noLessProducts,
+      { preferSequentialFallback: true },
+    );
+    const second = matchImageToProduct(
+      img({ anchorRow: 17, anchorCol: 3, mappingStrategy: 'inline_anchor' }),
+      noLessProducts,
+      { excludeProductIds: new Set(['p1']), preferSequentialFallback: true },
+    );
+
+    expect(first).toEqual({ productId: 'p1', reason: 'sheet_order' });
+    expect(second).toEqual({ productId: 'p2', reason: 'sheet_order' });
+  });
+
+  it('still matches inline images beside product rows by nearest row', () => {
+    const noLessProducts = products.slice(0, 2).map((p) => ({ ...p, no: null }));
+    const match = matchImageToProduct(
+      img({ anchorRow: 11, anchorCol: 8, mappingStrategy: 'inline_anchor' }),
+      noLessProducts,
+      { preferSequentialFallback: true },
+    );
+
+    expect(match).toEqual({ productId: 'p2', reason: 'nearest_row', rowDistance: 0 });
+  });
+
   it('does not map likely header images far above the first product row', () => {
     const match = matchImageToProduct(
       img({ anchorRow: 7, mappingStrategy: 'inline_anchor' }),

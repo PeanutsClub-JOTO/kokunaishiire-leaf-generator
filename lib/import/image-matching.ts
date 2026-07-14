@@ -124,9 +124,19 @@ export function matchImageToProduct(
       .map((p) => p.sourceRow)
       .filter((r): r is number => r !== null && r !== undefined);
     const minSourceRow = sourceRows.length > 0 ? Math.min(...sourceRows) : null;
+    const maxSourceRow = sourceRows.length > 0 ? Math.max(...sourceRows) : null;
     const rowsBeforeFirst = options.maxInlineRowsBeforeFirstProduct ?? 1;
     const canUseNearestRow =
       minSourceRow === null || image.anchorRow >= minSourceRow - rowsBeforeFirst;
+    const shouldPreferOrder =
+      preferSequentialFallback && maxSourceRow !== null && image.anchorRow > maxSourceRow;
+
+    if (shouldPreferOrder) {
+      return (
+        matchBySheetOrder(image, candidates, true) ??
+        (canUseNearestRow ? matchByNearestRow(image, candidates, inlineMax) : null)
+      );
+    }
 
     return (
       (canUseNearestRow ? matchByNearestRow(image, candidates, inlineMax) : null) ??

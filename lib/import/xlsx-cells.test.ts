@@ -121,6 +121,21 @@ describe('extractXlsxCells', () => {
     expect(p1.retail_price).toBe(600);
   });
 
+  it('最小ロットが空欄の場合は入数を1ロットとして扱う', () => {
+    const data = [
+      ['No.', '品名', '入数', '単価', '上代'],
+      ['1', 'テスト商品', '12', 400, 600],
+      ['2', '甲あり商品', '12×4', 400, 600],
+    ];
+
+    const buffer = createMockXlsxBuffer(data);
+    const result = extractXlsxCells(buffer);
+
+    expect(result[0].products[0].min_lot_qty).toBe(12);
+    expect(result[0].products[1].min_lot_qty).toBe(48);
+    expect(result[0].products[0].parse_errors).not.toContain('minlot_parse_error');
+  });
+
   it('結合された商品名範囲からメーカー名と具体的な品名を分離できる', () => {
     const data = [
       [''],

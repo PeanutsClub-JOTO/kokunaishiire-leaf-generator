@@ -223,6 +223,12 @@ export function normalizeRawProduct(f: RawProductFields): RawProductRow {
     irisuResult.lotsPerKou,
   );
   if (minLotResult.parseError && hasRawValue(f.min_lot_raw)) parseErrors.push('minlot_parse_error');
+  const minLotQty =
+    hasRawValue(f.min_lot_raw)
+      ? minLotResult.qty || null
+      : irisuResult.parseError
+        ? null
+        : irisuResult.caseQty * irisuResult.lotsPerKou;
 
   const shelfResult = parseShelfLife(f.shelf_life_raw);
   if (shelfResult.parseError && hasRawValue(f.shelf_life_raw)) parseErrors.push('shelf_parse_error');
@@ -252,7 +258,7 @@ export function normalizeRawProduct(f: RawProductFields): RawProductRow {
     case_qty: irisuResult.caseQty || null,
     lots_per_kou: irisuResult.lotsPerKou || null,
     min_lot_raw: f.min_lot_raw,
-    min_lot_qty: minLotResult.qty || null,
+    min_lot_qty: minLotQty,
     retail_price: f.retail_price,
     cost: f.cost,
     jan_code: normalizeJanCode(f.jan_code),
