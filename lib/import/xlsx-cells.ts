@@ -50,6 +50,7 @@ export type RawProductRow = {
   note:             string | null;
   parse_errors:     string[];
   source_row?:       number | null;  // Excel上の元行（0-indexed）。画像紐付け用の内部情報
+  source_col?:       number | null;  // Excel上の商品/JAN列（0-indexed）。横並びカタログの画像紐付け用
 };
 
 export type RawSheetData = {
@@ -480,7 +481,7 @@ function extractProductIdentity(
   row: number,
   productRange: { start: number; end: number },
   stats: ProductNameRangeStats,
-): { productName: string | null; makerName: string | null } {
+): { productName: string | null; makerName: string | null; productCol: number | null } {
   const candidates: { col: number; value: string }[] = [];
   const seen = new Set<string>();
 
@@ -493,7 +494,9 @@ function extractProductIdentity(
     candidates.push({ col: c, value });
   }
 
-  if (candidates.length === 0) return { productName: null, makerName: null };
+  if (candidates.length === 0) {
+    return { productName: null, makerName: null, productCol: null };
+  }
 
   const makerCandidate = candidates.length > 1
     ? candidates.find((c) => stats.likelyMakerCols.has(c.col)) ?? null
@@ -509,6 +512,7 @@ function extractProductIdentity(
 
   return {
     productName: product ? cleanProductName(product.value) : null,
+    productCol: product?.col ?? null,
     makerName:
       makerCandidate && product && compactText(makerCandidate.value) !== compactText(product.value)
         ? makerCandidate.value
@@ -595,6 +599,7 @@ function extractCatalogProducts(ws: XLSX.WorkSheet): RawProductRow[] {
         note: null,
       });
       product.source_row = r;
+      product.source_col = c;
       products.push(product);
     }
   }
@@ -644,7 +649,11 @@ function extractSheet(ws: XLSX.WorkSheet, sheetName: string): RawSheetData {
     // 品名がない行はスキップ（空行）。商品が出始めた後で空行が続いたら表の終端とみなす。
     const productIdentity = productNameRange
       ? extractProductIdentity(ws, r, productNameRange, productNameStats)
-      : { productName: get('product_name'), makerName: null };
+      : {
+          productName: get('product_name'),
+          makerName: null,
+          productCol: (colMap as Record<string, number | undefined>).product_name ?? null,
+        };
     const productName = productIdentity.productName;
     if (!productName || isNonProductText(productName)) {
       emptyStreak++;
@@ -674,6 +683,7 @@ function extractSheet(ws: XLSX.WorkSheet, sheetName: string): RawSheetData {
       note: get('note'),
     });
     product.source_row = r;
+    product.source_col = productIdentity.productCol;
     products.push(product);
   }
 

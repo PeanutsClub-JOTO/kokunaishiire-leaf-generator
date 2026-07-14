@@ -6,6 +6,7 @@ export type ProductImageTarget = {
   no: number | null;
   janCode?: string | null;
   sourceRow?: number | null;
+  sourceCol?: number | null;
   sourceIndex: number;
 };
 
@@ -19,6 +20,8 @@ type MatchOptions = {
   excludeProductIds?: ReadonlySet<string>;
   maxInlineRowDistance?: number;
   maxGridRowDistance?: number;
+  maxPositionRowDistance?: number;
+  maxPositionColDistance?: number;
   maxInlineRowsBeforeFirstProduct?: number;
   preferSequentialFallback?: boolean;
 };
@@ -91,11 +94,55 @@ function matchByNearestRow(
   };
 }
 
+function matchByNearestPosition(
+  image: ExtractedImage,
+  products: ProductImageTarget[],
+  maxRowDistance: number,
+  maxColDistance: number,
+): ProductImageMatch | null {
+  const withPosition = products
+    .filter(
+      (p) =>
+        p.sourceRow !== null &&
+        p.sourceRow !== undefined &&
+        p.sourceCol !== null &&
+        p.sourceCol !== undefined,
+    )
+    .map((p) => {
+      const rowDistance = Math.abs((p.sourceRow as number) - image.anchorRow);
+      const colDistance = Math.abs((p.sourceCol as number) - image.anchorCol);
+      return {
+        product: p,
+        rowDistance,
+        colDistance,
+        // 横並びカタログでは列の近さが決定打になる。行は商品ブロック内なら多少離れても許容する。
+        score: colDistance * 2 + rowDistance,
+      };
+    })
+    .filter((x) => x.rowDistance <= maxRowDistance && x.colDistance <= maxColDistance)
+    .sort(
+      (a, b) =>
+        a.score - b.score ||
+        a.colDistance - b.colDistance ||
+        a.rowDistance - b.rowDistance ||
+        a.product.sourceIndex - b.product.sourceIndex,
+    );
+
+  const best = withPosition[0];
+  if (!best) return null;
+  return {
+    productId: best.product.id,
+    reason: 'nearest_row',
+    rowDistance: best.rowDistance,
+  };
+}
+
 /**
  * Excel埋め込み画像を商品へ対応付ける。
  *
  * 優先順:
  * - 従来の標準テンプレ: シート名 + 商品No
+ * - 横並びカタログ: 画像アンカーの行列に近い商品セル
  * - No列がない標準テンプレ: シート内の商品順
  * - 表の行内/横にある画像: 画像アンカー行に最も近い商品行
  */
@@ -117,8 +164,18 @@ export function matchImageToProduct(
 
   const inlineMax = options.maxInlineRowDistance ?? 4;
   const gridMax = options.maxGridRowDistance ?? 2;
+  const positionRowMax = options.maxPositionRowDistance ?? 10;
+  const positionColMax = options.maxPositionColDistance ?? 8;
   const preferSequentialFallback =
     Boolean(options.preferSequentialFallback) && sheetCandidates.every((p) => p.no === null);
+
+  const byPosition = matchByNearestPosition(
+    image,
+    candidates,
+    positionRowMax,
+    positionColMax,
+  );
+  if (byPosition) return byPosition;
 
   if (image.mappingStrategy === 'inline_anchor') {
     const sourceRows = candidates

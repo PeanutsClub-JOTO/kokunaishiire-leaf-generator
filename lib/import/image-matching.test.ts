@@ -90,6 +90,23 @@ describe('matchImageToProduct', () => {
     expect(match).toEqual({ productId: 'p2', reason: 'nearest_row', rowDistance: 0 });
   });
 
+  it('matches horizontal catalog images by nearest column when products share a row', () => {
+    const horizontalProducts: ProductImageTarget[] = [
+      { id: 'p1', sheetName: 'Sheet1', no: null, sourceRow: 12, sourceCol: 2, sourceIndex: 0 },
+      { id: 'p2', sheetName: 'Sheet1', no: null, sourceRow: 12, sourceCol: 12, sourceIndex: 1 },
+      { id: 'p3', sheetName: 'Sheet1', no: null, sourceRow: 12, sourceCol: 22, sourceIndex: 2 },
+      { id: 'p4', sheetName: 'Sheet1', no: null, sourceRow: 12, sourceCol: 32, sourceIndex: 3 },
+    ];
+
+    const match = matchImageToProduct(
+      img({ anchorRow: 5, anchorCol: 23, mappingStrategy: 'inline_anchor' }),
+      horizontalProducts,
+      { preferSequentialFallback: true },
+    );
+
+    expect(match).toEqual({ productId: 'p3', reason: 'nearest_row', rowDistance: 7 });
+  });
+
   it('does not map likely header images far above the first product row', () => {
     const match = matchImageToProduct(
       img({ anchorRow: 7, mappingStrategy: 'inline_anchor' }),

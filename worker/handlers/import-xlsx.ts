@@ -168,6 +168,7 @@ export async function processRawSheets(
         no: db.no,
         janCode: db.jan_code,
         sourceRow: raw.source_row ?? null,
+        sourceCol: raw.source_col ?? null,
         sourceIndex: i,
       });
     }

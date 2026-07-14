@@ -27,6 +27,7 @@ function row(overrides: Partial<RawProductRow>): RawProductRow {
     note: null,
     parse_errors: [],
     source_row: null,
+    source_col: null,
     ...overrides,
   };
 }
@@ -35,7 +36,11 @@ function sheet(products: RawProductRow[], sheetName = 'Sheet1'): RawSheetData {
   return { sheet_name: sheetName, maker_name: null, products };
 }
 
-function image(mediaPath: string, no: number | null): ExtractedImage {
+function image(
+  mediaPath: string,
+  no: number | null,
+  overrides: Partial<ExtractedImage> = {},
+): ExtractedImage {
   return {
     no,
     sheetName: 'Sheet1',
@@ -45,6 +50,7 @@ function image(mediaPath: string, no: number | null): ExtractedImage {
     anchorRow: 20,
     anchorCol: 1,
     mappingStrategy: 'number_grid',
+    ...overrides,
   };
 }
 
@@ -104,6 +110,53 @@ describe('multi-file workbook bundle', () => {
     expect(result.sheets[0].products[0].piece_size).toBe('W100×D50×H30');
     expect(result.productImages).toHaveLength(1);
     expect(result.productImages[0].image.mediaPath).toBe('catalog-image');
+  });
+
+  it('links horizontal catalog images by product column before sheet order', () => {
+    const quote = sheet([
+      row({ product_name: '商品A', jan_code: '1111111111111', cost: 100 }),
+      row({ product_name: '商品B', jan_code: '2222222222222', cost: 100 }),
+      row({ product_name: '商品C', jan_code: '3333333333333', cost: 100 }),
+    ]);
+    const catalog = sheet([
+      row({
+        product_name: '商品A',
+        jan_code: '1111111111111',
+        source_row: 12,
+        source_col: 2,
+      }),
+      row({
+        product_name: '商品B',
+        jan_code: '2222222222222',
+        source_row: 12,
+        source_col: 12,
+      }),
+      row({
+        product_name: '商品C',
+        jan_code: '3333333333333',
+        source_row: 12,
+        source_col: 22,
+      }),
+    ]);
+
+    const result = mergeWorkbookBundle([
+      { fileName: '見積書.xlsx', sheets: [quote], images: [] },
+      {
+        fileName: '商品リスト.xlsx',
+        sheets: [catalog],
+        images: [
+          image('image-for-c', null, {
+            anchorRow: 5,
+            anchorCol: 23,
+            mappingStrategy: 'inline_anchor',
+          }),
+        ],
+      },
+    ]);
+
+    expect(result.productImages).toHaveLength(1);
+    expect(result.productImages[0].sourceIndex).toBe(2);
+    expect(result.productImages[0].image.mediaPath).toBe('image-for-c');
   });
 
   it('does not add catalog-only products when quotation rows exist', () => {

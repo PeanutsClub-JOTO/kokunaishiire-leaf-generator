@@ -131,6 +131,7 @@ function imageBySourceProduct(
         no: product.no,
         janCode: product.jan_code,
         sourceRow: product.source_row ?? null,
+        sourceCol: product.source_col ?? null,
         sourceIndex,
       });
     });
