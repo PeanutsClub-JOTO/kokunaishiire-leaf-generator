@@ -75,6 +75,18 @@ describe('parseShelfLife', () => {
     expect(r.parseError).toBe(false);
   });
 
+  it('"9ヵ月" → 270', () => {
+    const r = parseShelfLife('9ヵ月');
+    expect(r.days).toBe(270);
+    expect(r.parseError).toBe(false);
+  });
+
+  it('"1年" → 365', () => {
+    const r = parseShelfLife('1年');
+    expect(r.days).toBe(365);
+    expect(r.parseError).toBe(false);
+  });
+
   it('"(240日)" → 240', () => {
     const r = parseShelfLife('(240日)');
     expect(r.days).toBe(240);

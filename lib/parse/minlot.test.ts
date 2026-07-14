@@ -53,6 +53,12 @@ describe('parseMinLot', () => {
     expect(r.parseError).toBe(false);
   });
 
+  it('"混載10cs～" + {60,1} → 600', () => {
+    const r = parseMinLot('混載10cs～', 60, 1);
+    expect(r.qty).toBe(600);
+    expect(r.parseError).toBe(false);
+  });
+
   // ピース
   it('"48ピース" → 48', () => {
     const r = parseMinLot('48ピース', 12, 1);

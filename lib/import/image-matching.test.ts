@@ -41,6 +41,18 @@ describe('matchImageToProduct', () => {
     expect(match).toEqual({ productId: 'p2', reason: 'sheet_order' });
   });
 
+  it('can assign no-less products sequentially when image grid numbers are unreliable', () => {
+    const noLessProducts = products.map((p) => ({ ...p, no: null }));
+    const used = new Set<string>(['p1', 'p2']);
+    const match = matchImageToProduct(
+      img({ no: 11, mappingStrategy: 'number_grid', anchorRow: 25 }),
+      noLessProducts,
+      { excludeProductIds: used, preferSequentialFallback: true },
+    );
+
+    expect(match).toEqual({ productId: 'p3', reason: 'sheet_order' });
+  });
+
   it('matches inline images to the nearest source row', () => {
     const match = matchImageToProduct(
       img({ anchorRow: 12, mappingStrategy: 'inline_anchor' }),

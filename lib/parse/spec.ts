@@ -19,7 +19,7 @@ export type SpecResult = {
 
 // 全角数字を半角に正規化
 function normalizeDigits(s: string): string {
-  return s.replace(/[０-９]/g, (c) =>
+  return s.normalize('NFKC').replace(/[０-９]/g, (c) =>
     String.fromCharCode(c.charCodeAt(0) - 0xfee0),
   );
 }
@@ -28,7 +28,9 @@ function normalizeDigits(s: string): string {
 function normalizeUnit(s: string): string {
   return s
     .replace(/Ｇ|ｇ/g, 'g')
-    .replace(/個|ｺ|コ/g, '個')
+    .replace(/ＭＬ|ｍｌ/gi, 'ml')
+    .replace(/Ｌ|ｌ/g, 'l')
+    .replace(/個|ｺ|コ|枚|本|粒/g, '個')
     .replace(/\s/g, '');
 }
 
@@ -43,7 +45,7 @@ export function parseSpec(raw: string | null | undefined): SpecResult {
   let specGrams: number | null = null;
   let matched = false;
 
-  // 個数パターン: 数値 + 個/ｺ/コ
+  // 個数パターン: 数値 + 個/枚/本/粒
   const piecesMatch = s.match(/(\d+(?:\.\d+)?)個/);
   if (piecesMatch) {
     specPieces = parseInt(piecesMatch[1], 10);
@@ -54,6 +56,19 @@ export function parseSpec(raw: string | null | undefined): SpecResult {
   const gramsMatch = s.match(/(\d+(?:\.\d+)?)[gG]/);
   if (gramsMatch) {
     specGrams = parseFloat(gramsMatch[1]);
+    matched = true;
+  }
+
+  // ミリリットル/リットルも容量として同じ数値フィールドに保持する。
+  // フィールド名は既存DB互換のため spec_grams のまま。
+  const mlMatch = s.match(/(\d+(?:\.\d+)?)ml/i);
+  if (mlMatch) {
+    specGrams = parseFloat(mlMatch[1]);
+    matched = true;
+  }
+  const literMatch = s.match(/(\d+(?:\.\d+)?)l/i);
+  if (!mlMatch && literMatch) {
+    specGrams = parseFloat(literMatch[1]) * 1000;
     matched = true;
   }
 

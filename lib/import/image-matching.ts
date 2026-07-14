@@ -19,6 +19,7 @@ type MatchOptions = {
   maxInlineRowDistance?: number;
   maxGridRowDistance?: number;
   maxInlineRowsBeforeFirstProduct?: number;
+  preferSequentialFallback?: boolean;
 };
 
 function sameSheetCandidates(
@@ -55,9 +56,14 @@ function matchByNo(
 function matchBySheetOrder(
   image: ExtractedImage,
   products: ProductImageTarget[],
+  preferSequentialFallback: boolean,
 ): ProductImageMatch | null {
-  if (image.no === null || image.no < 1) return null;
   const ordered = [...products].sort(bySourceIndex);
+  if (preferSequentialFallback) {
+    const product = ordered[0];
+    return product ? { productId: product.id, reason: 'sheet_order' } : null;
+  }
+  if (image.no === null || image.no < 1) return null;
   const product = ordered[image.no - 1];
   return product ? { productId: product.id, reason: 'sheet_order' } : null;
 }
@@ -110,6 +116,8 @@ export function matchImageToProduct(
 
   const inlineMax = options.maxInlineRowDistance ?? 4;
   const gridMax = options.maxGridRowDistance ?? 2;
+  const preferSequentialFallback =
+    Boolean(options.preferSequentialFallback) && sheetCandidates.every((p) => p.no === null);
 
   if (image.mappingStrategy === 'inline_anchor') {
     const sourceRows = candidates
@@ -122,12 +130,12 @@ export function matchImageToProduct(
 
     return (
       (canUseNearestRow ? matchByNearestRow(image, candidates, inlineMax) : null) ??
-      matchBySheetOrder(image, candidates)
+      matchBySheetOrder(image, candidates, preferSequentialFallback)
     );
   }
 
   return (
-    matchBySheetOrder(image, candidates) ??
+    matchBySheetOrder(image, candidates, preferSequentialFallback) ??
     matchByNearestRow(image, candidates, gridMax)
   );
 }

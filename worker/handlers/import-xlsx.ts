@@ -378,6 +378,7 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
 
         const match = matchImageToProduct(img, processedProducts, {
           excludeProductIds: usedProductIds,
+          preferSequentialFallback: true,
         });
         if (!match) {
           matchStats.unmatched++;

@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
 
     const match = matchImageToProduct(img, productTargets, {
       excludeProductIds: usedProductIds,
+      preferSequentialFallback: true,
     });
     if (!match) continue;
     usedProductIds.add(match.productId);

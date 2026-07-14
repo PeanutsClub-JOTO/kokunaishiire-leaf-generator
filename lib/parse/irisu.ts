@@ -12,33 +12,47 @@ export type IrisuResult = {
   parseError: boolean;
 };
 
-// 全角×/半角x/特殊✕ を正規化するパターン
-const SEPARATOR_RE = /[×xX✕×]/u;
+// 全角×/半角x/特殊✕/アスタリスクを正規化するパターン
+const SEPARATOR_RE = /[×xX✕*＊]/u;
 
 export function parseIrisu(raw: string | null | undefined): IrisuResult {
   if (!raw || raw.trim() === '') {
     return { caseQty: 0, lotsPerKou: 1, parseError: true };
   }
 
-  const normalized = raw.trim().replace(/\s/g, '');
+  const normalized = raw.normalize('NFKC').trim().replace(/\s/g, '');
 
-  // セパレータで分割
-  const parts = normalized.split(SEPARATOR_RE);
+  const firstNumber = normalized.match(/\d+/);
+  if (!firstNumber) {
+    return { caseQty: 0, lotsPerKou: 1, parseError: true };
+  }
 
-  const a = parseInt(parts[0], 10);
+  const a = parseInt(firstNumber[0], 10);
   if (isNaN(a) || a <= 0) {
     return { caseQty: 0, lotsPerKou: 1, parseError: true };
   }
+
+  // "60(5×12)" のように先頭に総入数があり、括弧内に内訳がある場合は総入数を優先する。
+  if (/^\d+[（(]/.test(normalized)) {
+    return { caseQty: a, lotsPerKou: 1, parseError: false };
+  }
+
+  // セパレータで分割
+  const parts = normalized.split(SEPARATOR_RE);
 
   if (parts.length === 1) {
     // "12" 形式 → ケース入数のみ、甲なし
     return { caseQty: a, lotsPerKou: 1, parseError: false };
   }
 
-  const b = parseInt(parts[1], 10);
-  if (isNaN(b) || b <= 0) {
+  const rest = parts.slice(1).map((part) => parseInt(part, 10));
+  if (rest.some((n) => isNaN(n) || n <= 0)) {
     return { caseQty: a, lotsPerKou: 1, parseError: true };
   }
 
-  return { caseQty: a, lotsPerKou: b, parseError: false };
+  return {
+    caseQty: a,
+    lotsPerKou: rest.reduce((acc, n) => acc * n, 1),
+    parseError: false,
+  };
 }

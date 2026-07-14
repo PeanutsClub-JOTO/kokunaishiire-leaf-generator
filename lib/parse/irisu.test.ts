@@ -73,4 +73,25 @@ describe('parseIrisu', () => {
     expect(r.lotsPerKou).toBe(4);
     expect(r.parseError).toBe(false);
   });
+
+  it('"５０×８袋" (全角数字・単位付き) → {50, 8}', () => {
+    const r = parseIrisu('５０×８袋');
+    expect(r.caseQty).toBe(50);
+    expect(r.lotsPerKou).toBe(8);
+    expect(r.parseError).toBe(false);
+  });
+
+  it('"100*6袋*2合" (アスタリスク区切り) → {100, 12}', () => {
+    const r = parseIrisu('100*6袋*2合');
+    expect(r.caseQty).toBe(100);
+    expect(r.lotsPerKou).toBe(12);
+    expect(r.parseError).toBe(false);
+  });
+
+  it('"60（5×12）" は先頭の総入数を優先する', () => {
+    const r = parseIrisu('60（5×12）');
+    expect(r.caseQty).toBe(60);
+    expect(r.lotsPerKou).toBe(1);
+    expect(r.parseError).toBe(false);
+  });
 });

@@ -49,6 +49,18 @@ describe('parseSpec', () => {
     expect(r.parseError).toBe(false);
   });
 
+  it('"1枚" → {specPieces:1}', () => {
+    const r = parseSpec('1枚');
+    expect(r.specPieces).toBe(1);
+    expect(r.parseError).toBe(false);
+  });
+
+  it('"470ml" → 容量として数値を保持する', () => {
+    const r = parseSpec('470ml');
+    expect(r.specGrams).toBe(470);
+    expect(r.parseError).toBe(false);
+  });
+
   it('空文字 → parseError=true', () => {
     const r = parseSpec('');
     expect(r.parseError).toBe(true);

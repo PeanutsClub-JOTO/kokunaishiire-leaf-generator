@@ -4,8 +4,9 @@ import { extractXlsxCells } from './xlsx-cells';
 import { KANAZAWA_PRODUCTS } from '../../tests/fixtures/kanazawa';
 
 // テスト用の XLSX バッファを生成するヘルパー
-function createMockXlsxBuffer(data: unknown[][], sheetName = 'Sheet1'): Buffer {
+function createMockXlsxBuffer(data: unknown[][], sheetName = 'Sheet1', merges: XLSX.Range[] = []): Buffer {
   const ws = XLSX.utils.aoa_to_sheet(data);
+  if (merges.length > 0) ws['!merges'] = merges;
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
   const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -118,6 +119,125 @@ describe('extractXlsxCells', () => {
 
     expect(p1.cost).toBe(400);
     expect(p1.retail_price).toBe(600);
+  });
+
+  it('結合された商品名範囲からメーカー名と具体的な品名を分離できる', () => {
+    const data = [
+      [''],
+      ['商品名', '', '', '規格', 'JANコード', '入数', '上代', '単価（税抜）', '賞味期限', '備考'],
+      ['アサヒ飲料', 'カルピス（希釈）', '', '470ml', '4901340184527', '15', '¥520', '¥310', '9ヵ月', ''],
+      ['アサヒ飲料', 'カルピス糖質60％オフ（希釈）', '', '470ml', '4901340074341', '12', '¥520', '¥310', '9ヵ月', ''],
+      ['', '', '', '', '', '', '', '', '', ''],
+      ['', '', '', '', '', '', '', '', '', ''],
+      ['【定番品】', '', '【季節商品】', '', '', '', '', '', '季節品販売期間(目安)：発売～3､4ヶ月', ''],
+    ];
+    const buffer = createMockXlsxBuffer(data, 'アサヒ飲料', [
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 2 } },
+    ]);
+
+    const result = extractXlsxCells(buffer);
+    const sheet = result[0];
+
+    expect(sheet.maker_name).toBe('アサヒ飲料');
+    expect(sheet.products).toHaveLength(2);
+    expect(sheet.products[0].maker_name).toBe('アサヒ飲料');
+    expect(sheet.products[0].product_name).toBe('カルピス（希釈）');
+    expect(sheet.products[0].cost).toBe(310);
+    expect(sheet.products[0].retail_price).toBe(520);
+    expect(sheet.products[0].case_qty).toBe(15);
+    expect(sheet.products[0].shelf_life_days).toBe(270);
+    expect(sheet.products[1].product_name).toBe('カルピス糖質60％オフ（希釈）');
+  });
+
+  it('注意書きの卸単価に惑わされず、2段ヘッダーの見積書を抽出できる', () => {
+    const data = [
+      ['', '', '', '納品場所：事前協議※納品場所により卸単価変更の場合有り'],
+      [],
+      ['', '', '', '', '', '', '', '', '', '価格'],
+      ['№', 'メーカー', '発売日', '商品名', '規格', 'ＪＡＮコード', '入数', '発注ロット', '賞味期限', '参考売価', '', '', '推奨売価', '', '', 'ＮＥＴ価格'],
+      ['', '', '', '', '', '', '', '', '日', '税抜', '税込', '', '税抜', '税込', '', '税抜'],
+      ['1', 'バルエジャパン', '', 'かぶりつきチキン　うましお味', '1本(80g）', '4582291210932', '60（5×12）', '混載10cs～', '365', '300', '324', '', '298', '321', '', '175'],
+      ['2', 'バルエジャパン', '', 'かぶりつきチキン　テリヤキ味', '1本(80g）', '458-2291-210949', '60（5×12）', '混載10cs～', '365', '300', '324', '', '298', '321', '', '175'],
+    ];
+    const buffer = createMockXlsxBuffer(data, '見積書', [
+      { s: { r: 3, c: 0 }, e: { r: 4, c: 0 } },
+      { s: { r: 3, c: 1 }, e: { r: 4, c: 1 } },
+      { s: { r: 3, c: 3 }, e: { r: 4, c: 3 } },
+      { s: { r: 3, c: 4 }, e: { r: 4, c: 4 } },
+      { s: { r: 3, c: 5 }, e: { r: 4, c: 5 } },
+      { s: { r: 3, c: 6 }, e: { r: 4, c: 6 } },
+      { s: { r: 3, c: 7 }, e: { r: 4, c: 7 } },
+      { s: { r: 3, c: 9 }, e: { r: 3, c: 10 } },
+      { s: { r: 3, c: 12 }, e: { r: 3, c: 13 } },
+    ]);
+
+    const result = extractXlsxCells(buffer);
+    const sheet = result[0];
+
+    expect(sheet.products).toHaveLength(2);
+    expect(sheet.products[0].product_name).toBe('かぶりつきチキン　うましお味');
+    expect(sheet.products[0].maker_name).toBe('バルエジャパン');
+    expect(sheet.products[0].case_qty).toBe(60);
+    expect(sheet.products[0].lots_per_kou).toBe(1);
+    expect(sheet.products[0].min_lot_qty).toBe(600);
+    expect(sheet.products[0].retail_price).toBe(300);
+    expect(sheet.products[0].cost).toBe(175);
+    expect(sheet.products[1].jan_code).toBe('4582291210949');
+  });
+
+  it('ヘッダー下段を商品として抽出せず、結合セルの上代を補完できる', () => {
+    const data = [
+      ['上代', '商品名', 'JANコード', '入数', '規格', '単価', '賞味期限'],
+      ['', '', '', '', '', '', ''],
+      ['', '', '', '', '', '', ''],
+      ['10円', '(新)リッチバタークッキー', '4962407015031', '100×6袋×2合', '1枚', '6', '365日'],
+      ['', '(新)ミックスハニー', '4962407010463', '50×8袋', '6個', '11', '180日'],
+    ];
+    const buffer = createMockXlsxBuffer(data, '銀の汐商品', [
+      { s: { r: 0, c: 0 }, e: { r: 2, c: 0 } },
+      { s: { r: 0, c: 1 }, e: { r: 2, c: 1 } },
+      { s: { r: 0, c: 2 }, e: { r: 2, c: 2 } },
+      { s: { r: 0, c: 3 }, e: { r: 2, c: 3 } },
+      { s: { r: 0, c: 4 }, e: { r: 2, c: 4 } },
+      { s: { r: 0, c: 5 }, e: { r: 2, c: 5 } },
+      { s: { r: 0, c: 6 }, e: { r: 2, c: 6 } },
+      { s: { r: 3, c: 0 }, e: { r: 4, c: 0 } },
+    ]);
+
+    const result = extractXlsxCells(buffer);
+    const sheet = result[0];
+
+    expect(sheet.products).toHaveLength(2);
+    expect(sheet.products[0].product_name).toBe('(新)リッチバタークッキー');
+    expect(sheet.products[0].retail_price).toBe(10);
+    expect(sheet.products[0].case_qty).toBe(100);
+    expect(sheet.products[0].lots_per_kou).toBe(12);
+    expect(sheet.products[1].product_name).toBe('(新)ミックスハニー');
+    expect(sheet.products[1].retail_price).toBe(10);
+  });
+
+  it('表ヘッダーがない商品リスト型でもJANカードから商品を抽出できる', () => {
+    const data = [
+      ['銀の汐　商品リスト'],
+      [],
+      ['JAN:4962407015031', '', 'JAN:4962407010470'],
+      ['10円リッチバタークッキー', '', '20円ひとくちソースカツ'],
+      ['入数:100*6袋*2合 賞味365日', '', '入数:50*8袋 賞味:180日'],
+    ];
+    const buffer = createMockXlsxBuffer(data, '銀汐');
+
+    const result = extractXlsxCells(buffer);
+    const sheet = result[0];
+
+    expect(sheet.products).toHaveLength(2);
+    expect(sheet.products[0].product_name).toBe('リッチバタークッキー');
+    expect(sheet.products[0].retail_price).toBe(10);
+    expect(sheet.products[0].jan_code).toBe('4962407015031');
+    expect(sheet.products[0].case_qty).toBe(100);
+    expect(sheet.products[0].lots_per_kou).toBe(12);
+    expect(sheet.products[0].shelf_life_days).toBe(365);
+    expect(sheet.products[1].product_name).toBe('ひとくちソースカツ');
+    expect(sheet.products[1].retail_price).toBe(20);
   });
 
   it('ヘッダーが見つからない場合は空のリストを返す', () => {

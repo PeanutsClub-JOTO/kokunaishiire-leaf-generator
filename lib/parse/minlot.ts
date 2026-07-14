@@ -14,7 +14,7 @@ export type MinLotResult = {
 // 単位エイリアス辞書（キー: 正規化後の単位, 値: 正規表現パターン）
 const UNIT_ALIASES: Record<string, RegExp> = {
   kou: /甲|こう|コウ/u,
-  case: /ケース|ケーズ|ケース|けーす|ｹｰｽ|case|CASE|Case/u,
+  case: /ケース|ケーズ|ケース|けーす|ｹｰｽ|case|CASE|Case|cs|CS|ＣＳ/u,
   piece: /ピース|ﾋﾟｰｽ|個|piece|PIECE|Piece|pcs|PCS/u,
 };
 
@@ -27,13 +27,13 @@ export function parseMinLot(
     return { qty: 0, parseError: true };
   }
 
-  const normalized = raw.trim().replace(/\s/g, '');
+  const normalized = raw.normalize('NFKC').trim().replace(/\s/g, '');
 
-  // 先頭の数値部分を取得（全角数字も正規化）
+  // 数値部分を取得（"混載10cs～" のような前置き付きにも対応）
   const digitNorm = normalized.replace(/[０-９]/g, (c) =>
     String.fromCharCode(c.charCodeAt(0) - 0xfee0),
   );
-  const numMatch = digitNorm.match(/^(\d+(?:\.\d+)?)/);
+  const numMatch = digitNorm.match(/(\d+(?:\.\d+)?)/);
   const n = numMatch ? parseFloat(numMatch[1]) : 1;
 
   // 単位判定

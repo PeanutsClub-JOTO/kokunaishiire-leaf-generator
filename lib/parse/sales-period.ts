@@ -75,15 +75,21 @@ export function parseShelfLife(raw: string | null | undefined): {
     return { days: 0, parseError: true };
   }
 
-  // 全角数字を半角に
-  const normalized = raw.replace(/[０-９]/g, (c) =>
-    String.fromCharCode(c.charCodeAt(0) - 0xfee0),
-  );
+  // 全角数字・表記ゆれを正規化
+  const normalized = raw
+    .normalize('NFKC')
+    .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
 
   const m = normalized.match(/(\d+)/);
   if (!m) {
     return { days: 0, parseError: true };
   }
 
-  return { days: parseInt(m[1], 10), parseError: false };
+  const value = parseInt(m[1], 10);
+  if (/年/.test(normalized)) return { days: value * 365, parseError: false };
+  if (/(ヶ月|カ月|か月|ヵ月|ケ月|月)/u.test(normalized)) {
+    return { days: value * 30, parseError: false };
+  }
+
+  return { days: value, parseError: false };
 }
