@@ -68,10 +68,15 @@ async function loadLeafletBase(
     .from('leaflets')
     .select('*')
     .eq('id', leafletId)
-    .single();
+    .maybeSingle();
 
-  if (error || !leaflet) {
-    throw new Error(error?.message ?? 'Leaflet not found');
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (!leaflet) {
+    // 見積書削除後もjobsテーブルにtarget_id参照が残っていた場合にここに来る。
+    // 呼び出し側でジョブをerror扱いにできるよう分かりやすいメッセージにする。
+    throw new Error(`LEAFLET_NOT_FOUND: リーフ ${leafletId} は既に削除されています`);
   }
 
   const { data: items } = await supabase

@@ -53,6 +53,13 @@ export async function deleteQuotationFull(
     removeFolder(supabase, 'quotation-files', `quotations/${quotationId}`),
   ]);
 
+  // リーフ削除後もjobsテーブルにtarget_id参照が残ると、ワーカーが存在しない
+  // リーフを処理しようとして "Cannot coerce the result to a single JSON object"
+  // エラーを吐き続けるため、先にキュー済み/実行中ジョブを消しておく。
+  if (leafletIds.length > 0) {
+    await supabase.from('jobs').delete().in('target_id', leafletIds);
+  }
+
   const { error } = await supabase.from('quotations').delete().eq('id', quotationId);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
