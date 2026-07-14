@@ -12,7 +12,7 @@
  *    OPT レコードの pib プロパティ(0x0104) と ClientAnchor (0xF010) を持つ。
  *    アンカーの (row, col) から xlsx と同じ「行ブロック×列順位」で商品No.を決める。
  */
-import type { ExtractedImage, ImageExtractionResult } from './xlsx-images';
+import type { ExtractedImage, ImageExtractionOptions, ImageExtractionResult } from './xlsx-images';
 
 const PNG_SIG = Buffer.from('89504e470d0a1a0a', 'hex');
 const JPG_SIG = Buffer.from('ffd8ff', 'hex');
@@ -153,9 +153,23 @@ function extractShapeAnchors(drawing: Buffer): ShapeAnchor[] {
  */
 export async function extractXlsImages(
   xlsBuffer: Buffer,
-  imageAreaStartRow: number = 20,
-  productsPerRow: number = 6,
+  imageAreaStartRowOrOptions: number | ImageExtractionOptions = 20,
+  productsPerRowArg: number = 6,
 ): Promise<ImageExtractionResult> {
+  const options: Required<ImageExtractionOptions> =
+    typeof imageAreaStartRowOrOptions === 'number'
+      ? {
+          imageAreaStartRow: imageAreaStartRowOrOptions,
+          productsPerRow: productsPerRowArg,
+          includeInlineAnchors: false,
+          inlineImageStartRow: 3,
+        }
+      : {
+          imageAreaStartRow: imageAreaStartRowOrOptions.imageAreaStartRow ?? 20,
+          productsPerRow: imageAreaStartRowOrOptions.productsPerRow ?? 6,
+          includeInlineAnchors: imageAreaStartRowOrOptions.includeInlineAnchors ?? false,
+          inlineImageStartRow: imageAreaStartRowOrOptions.inlineImageStartRow ?? 3,
+        };
   const XLSX = (await import('xlsx')).default;
   const cfb = XLSX.CFB.read(xlsBuffer as unknown as Uint8Array, { type: 'buffer' });
   const entry = XLSX.CFB.find(cfb, 'Workbook') ?? XLSX.CFB.find(cfb, 'Book');
@@ -185,7 +199,12 @@ export async function extractXlsImages(
         s.pib !== null && s.pib >= 1 && s.pib <= blips.length && blips[s.pib - 1] !== null,
     );
 
-    const areaShapes = shapes.filter((s) => s.row >= imageAreaStartRow);
+    const areaShapes = shapes.filter((s) => s.row >= options.imageAreaStartRow);
+    const inlineShapes = options.includeInlineAnchors
+      ? shapes.filter(
+          (s) => s.row >= options.inlineImageStartRow && s.row < options.imageAreaStartRow,
+        )
+      : [];
     const rowsSorted = [...new Set(areaShapes.map((s) => s.row))].sort((x, y) => x - y);
     const colsSorted = [...new Set(areaShapes.map((s) => s.col))].sort((x, y) => x - y);
 
@@ -195,20 +214,56 @@ export async function extractXlsImages(
       const rowBlock = rowsSorted.indexOf(s.row);
       const colRank = colsSorted.indexOf(s.col);
       images.push({
-        no: rowBlock * productsPerRow + colRank + 1,
+        no: rowBlock * options.productsPerRow + colRank + 1,
         sheetName: sheet.name,
         mediaPath: `biff/blip${s.pib}`,
         mimeType: blip.mimeType,
         buffer: blip.buffer,
+        anchorRow: s.row,
+        anchorCol: s.col,
+        mappingStrategy: 'number_grid',
       });
     }
 
-    for (const s of shapes.filter((s) => s.row < imageAreaStartRow)) {
-      unmatched.push({ mediaPath: `biff/blip${s.pib}`, anchorRow: s.row, sheetName: sheet.name });
+    for (const s of inlineShapes) {
+      const blip = blips[s.pib - 1];
+      if (!blip) continue;
+      images.push({
+        no: null,
+        sheetName: sheet.name,
+        mediaPath: `biff/blip${s.pib}`,
+        mimeType: blip.mimeType,
+        buffer: blip.buffer,
+        anchorRow: s.row,
+        anchorCol: s.col,
+        mappingStrategy: 'inline_anchor',
+      });
+    }
+
+    for (const s of shapes.filter(
+      (s) =>
+        s.row < options.imageAreaStartRow &&
+        !(options.includeInlineAnchors && s.row >= options.inlineImageStartRow),
+    )) {
+      unmatched.push({
+        mediaPath: `biff/blip${s.pib}`,
+        anchorRow: s.row,
+        anchorCol: s.col,
+        sheetName: sheet.name,
+      });
     }
   }
 
-  images.sort((a, b) => (a.sheetName ?? '').localeCompare(b.sheetName ?? '') || a.no - b.no);
+  const strategyRank = (s: ExtractedImage['mappingStrategy']) =>
+    s === 'number_grid' ? 0 : 1;
+  images.sort(
+    (a, b) =>
+      (a.sheetName ?? '').localeCompare(b.sheetName ?? '') ||
+      strategyRank(a.mappingStrategy) - strategyRank(b.mappingStrategy) ||
+      (a.no ?? Number.MAX_SAFE_INTEGER) - (b.no ?? Number.MAX_SAFE_INTEGER) ||
+      a.anchorRow - b.anchorRow ||
+      a.anchorCol - b.anchorCol,
+  );
   return { images, unmatched };
 }
 

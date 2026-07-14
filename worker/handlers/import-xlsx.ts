@@ -11,6 +11,7 @@ import type { Database } from '../../lib/supabase/types';
 import { extractXlsxCells, type RawSheetData } from '../../lib/import/xlsx-cells';
 import { extractXlsxImages } from '../../lib/import/xlsx-images';
 import { extractXlsImages, isLegacyXls } from '../../lib/import/xls-images';
+import { matchImageToProduct, type ProductImageTarget } from '../../lib/import/image-matching';
 import { upscaleImageBuffer } from '../../lib/leaf/upscale-image';
 import { groupProducts, type ProductForGrouping } from '../../lib/assort/grouping';
 import { type Settings, DEFAULT_SETTINGS } from '../../lib/calc/engine';
@@ -23,6 +24,10 @@ import {
 
 type Supabase = SupabaseClient<Database>;
 type Job = Database['public']['Tables']['jobs']['Row'];
+
+type ProcessedProductRef = ProductImageTarget & {
+  sheetId: string;
+};
 
 export async function loadSettings(supabase: Supabase): Promise<Settings> {
   const { data } = await supabase.from('app_settings').select('key, value');
@@ -97,8 +102,9 @@ export async function processRawSheets(
   quotationId: string,
   rawSheets: RawSheetData[],
   settings: Settings,
-): Promise<void> {
+): Promise<ProcessedProductRef[]> {
   const today = new Date();
+  const processedProducts: ProcessedProductRef[] = [];
 
   for (const rawSheet of rawSheets) {
     if (rawSheet.products.length === 0) continue;
@@ -145,6 +151,20 @@ export async function processRawSheets(
       .insert(productInserts)
       .select();
     if (prodErr || !insertedProducts) throw new Error(`Products insert failed: ${prodErr?.message}`);
+
+    for (let i = 0; i < rawSheet.products.length; i++) {
+      const raw = rawSheet.products[i];
+      const db = insertedProducts[i];
+      if (!db) continue;
+      processedProducts.push({
+        id: db.id,
+        sheetId: sheet.id,
+        sheetName: rawSheet.sheet_name,
+        no: db.no,
+        sourceRow: raw.source_row ?? null,
+        sourceIndex: i,
+      });
+    }
 
     // パースエラーフラグ登録
     for (let i = 0; i < rawSheet.products.length; i++) {
@@ -281,6 +301,8 @@ export async function processRawSheets(
       }
     }
   }
+
+  return processedProducts;
 }
 
 export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<void> {
@@ -318,49 +340,44 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
     );
   }
 
-  await processRawSheets(supabase, quotation.id, rawSheets, settings);
+  const processedProducts = await processRawSheets(supabase, quotation.id, rawSheets, settings);
+  const legacyXls = isLegacyXls(buffer);
 
   // Excel 画像抽出（失敗してもジョブは続行）
   // 旧形式 .xls（OLE2バイナリ）と .xlsx（zip）で抽出方法を自動判別する
   try {
-    const imgResult = isLegacyXls(buffer)
-      ? await extractXlsImages(buffer)
-      : await extractXlsxImages(buffer);
+    const imgResult = legacyXls
+      ? await extractXlsImages(buffer, { includeInlineAnchors: true })
+      : await extractXlsxImages(buffer, { includeInlineAnchors: true });
     console.log(
-      `[import-xlsx] 画像抽出: ${isLegacyXls(buffer) ? 'xls(BIFF)' : 'xlsx(zip)'} images=${imgResult.images.length} unmatched=${imgResult.unmatched.length}`,
+      `[import-xlsx] 画像抽出: ${legacyXls ? 'xls(BIFF)' : 'xlsx(zip)'} images=${imgResult.images.length} unmatched=${imgResult.unmatched.length}`,
     );
     if (imgResult.images.length > 0) {
-      // この案件の全シート・全商品を取得し、(シート名, No.)→商品ID のマップを作る。
-      // マルチシート（御見積書_01/02/03…）でも No. が衝突しないようシート単位で対応付ける。
-      const { data: sheetRows } = await supabase
-        .from('sheets')
-        .select('id, sheet_name')
-        .eq('quotation_id', job.quotation_id!);
-      const sids = (sheetRows ?? []).map((s) => s.id);
-      const sheetIdToName = new Map<string, string | null>();
-      for (const s of sheetRows ?? []) sheetIdToName.set(s.id, s.sheet_name);
-
-      const { data: prodRows } = await supabase
-        .from('products')
-        .select('id, no, sheet_id')
-        .in('sheet_id', sids);
-
-      // キー: "シート名|No." → 商品ID。シート名が取れない画像向けに "|No." も補助登録。
-      const keyToProductId = new Map<string, string>();
-      for (const p of prodRows ?? []) {
-        if (p.no === null) continue;
-        const name = sheetIdToName.get(p.sheet_id) ?? '';
-        const k = `${name}|${p.no}`;
-        if (!keyToProductId.has(k)) keyToProductId.set(k, p.id);
-        const fallback = `|${p.no}`;
-        if (!keyToProductId.has(fallback)) keyToProductId.set(fallback, p.id);
-      }
+      const usedProductIds = new Set<string>();
+      const usedGridSlots = new Set<string>();
+      const matchStats = { no: 0, sheet_order: 0, nearest_row: 0, unmatched: 0 };
 
       for (const img of imgResult.images) {
-        const productId =
-          keyToProductId.get(`${img.sheetName ?? ''}|${img.no}`) ??
-          keyToProductId.get(`|${img.no}`);
-        if (!productId) continue;
+        const gridSlot =
+          img.mappingStrategy === 'number_grid' && img.no !== null
+            ? `${img.sheetName ?? ''}|${img.no}`
+            : null;
+        if (gridSlot && usedGridSlots.has(gridSlot)) {
+          matchStats.unmatched++;
+          continue;
+        }
+
+        const match = matchImageToProduct(img, processedProducts, {
+          excludeProductIds: usedProductIds,
+        });
+        if (!match) {
+          matchStats.unmatched++;
+          continue;
+        }
+        const productId = match.productId;
+        usedProductIds.add(productId);
+        if (gridSlot) usedGridSlots.add(gridSlot);
+        matchStats[match.reason]++;
 
         let uploadBuffer = img.buffer;
         let contentType = img.mimeType;
@@ -389,6 +406,9 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
           .update({ image_url: urlData.publicUrl })
           .eq('id', productId);
       }
+      console.log(
+        `[import-xlsx] 画像紐付け: no=${matchStats.no} order=${matchStats.sheet_order} row=${matchStats.nearest_row} unmatched=${matchStats.unmatched}`,
+      );
     }
   } catch (imgErr) {
     console.warn('[import-xlsx] Image extraction failed:', imgErr);

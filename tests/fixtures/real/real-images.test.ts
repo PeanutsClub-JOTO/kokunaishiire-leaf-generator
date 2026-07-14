@@ -21,7 +21,7 @@ describe.skipIf(!has('kanazawa.xlsx'))('実XLSX画像抽出: 金澤兼六製菓 
     const res = await extractXlsxImages(buf);
 
     expect(res.images).toHaveLength(12);
-    expect(res.images.map((i) => i.no).sort((a, b) => a - b)).toEqual([
+    expect(res.images.map((i) => i.no).filter((n): n is number => n !== null).sort((a, b) => a - b)).toEqual([
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
     ]);
     // 全画像が同一シートに属し、実体を持つ
@@ -39,7 +39,11 @@ describe.skipIf(!has('hokushin.xlsx'))('実XLSX画像抽出: 北辰フーズ (ho
     const res = await extractXlsxImages(buf);
 
     const bySheet = (name: string) =>
-      res.images.filter((i) => i.sheetName === name).map((i) => i.no).sort((a, b) => a - b);
+      res.images
+        .filter((i) => i.sheetName === name)
+        .map((i) => i.no)
+        .filter((n): n is number => n !== null)
+        .sort((a, b) => a - b);
 
     expect(bySheet('御見積書_01')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect(bySheet('御見積書_02')).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);

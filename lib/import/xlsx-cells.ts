@@ -49,6 +49,7 @@ export type RawProductRow = {
   piece_size:       string | null;   // ピース寸法（W×D×H）。商品画像エリアから抽出
   note:             string | null;
   parse_errors:     string[];
+  source_row?:       number | null;  // Excel上の元行（0-indexed）。画像紐付け用の内部情報
 };
 
 export type RawSheetData = {
@@ -368,22 +369,22 @@ function extractSheet(ws: XLSX.WorkSheet, sheetName: string): RawSheetData {
     const makerName = get('maker_name');
     if (makerName && !sheetMakerName) sheetMakerName = makerName;
 
-    products.push(
-      normalizeRawProduct({
-        no: get('no'),
-        maker_name: makerName ?? sheetMakerName,
-        product_name: productName,
-        spec_raw: get('spec'),
-        irisu_raw: get('irisu'),
-        min_lot_raw: get('min_lot'),
-        retail_price: getNum('retail_price'),
-        cost: getNum('cost'),
-        jan_code: get('jan_code'),
-        shelf_life_raw: get('shelf_life'),
-        sales_period_raw: get('sales_period'),
-        note: get('note'),
-      }),
-    );
+    const product = normalizeRawProduct({
+      no: get('no'),
+      maker_name: makerName ?? sheetMakerName,
+      product_name: productName,
+      spec_raw: get('spec'),
+      irisu_raw: get('irisu'),
+      min_lot_raw: get('min_lot'),
+      retail_price: getNum('retail_price'),
+      cost: getNum('cost'),
+      jan_code: get('jan_code'),
+      shelf_life_raw: get('shelf_life'),
+      sales_period_raw: get('sales_period'),
+      note: get('note'),
+    });
+    product.source_row = r;
+    products.push(product);
   }
 
   // 商品画像エリアからピース寸法を抽出し、商品No.で突き合わせて商品サイズにセット

@@ -18,16 +18,31 @@
 import * as path from 'path';
 
 export type ExtractedImage = {
-  no: number;               // シート内の商品No（1〜12）
+  no: number | null;        // シート内の商品No（1〜12）。行近接マッチ用画像ではnull
   sheetName: string | null; // 所属シート名（マルチシート対応）
   mediaPath: string;        // zip内のメディアパス
   mimeType: string;
   buffer: Buffer;
+  anchorRow: number;        // Excel上の画像アンカー行（0-indexed）
+  anchorCol: number;        // Excel上の画像アンカー列（0-indexed）
+  mappingStrategy: 'number_grid' | 'inline_anchor';
 };
 
 export type ImageExtractionResult = {
   images: ExtractedImage[];
-  unmatched: { mediaPath: string; anchorRow: number; sheetName: string | null }[];
+  unmatched: { mediaPath: string; anchorRow: number; anchorCol: number; sheetName: string | null }[];
+};
+
+export type ImageExtractionOptions = {
+  imageAreaStartRow?: number;
+  productsPerRow?: number;
+  /**
+   * true の場合、標準の商品画像エリアより上にある画像も候補として返す。
+   * 表の行内・横に配置された商品画像を、後段で近い商品行に紐付けるために使う。
+   */
+  includeInlineAnchors?: boolean;
+  /** ロゴ除外用。既定では最上部付近の画像を候補にしない。 */
+  inlineImageStartRow?: number;
 };
 
 type ZipLike = {
@@ -97,9 +112,23 @@ function extToMime(ext: string): string {
  */
 export async function extractXlsxImages(
   xlsxBuffer: Buffer,
-  imageAreaStartRow: number = 20,
-  productsPerRow: number = 6,
+  imageAreaStartRowOrOptions: number | ImageExtractionOptions = 20,
+  productsPerRowArg: number = 6,
 ): Promise<ImageExtractionResult> {
+  const options: Required<ImageExtractionOptions> =
+    typeof imageAreaStartRowOrOptions === 'number'
+      ? {
+          imageAreaStartRow: imageAreaStartRowOrOptions,
+          productsPerRow: productsPerRowArg,
+          includeInlineAnchors: false,
+          inlineImageStartRow: 3,
+        }
+      : {
+          imageAreaStartRow: imageAreaStartRowOrOptions.imageAreaStartRow ?? 20,
+          productsPerRow: imageAreaStartRowOrOptions.productsPerRow ?? 6,
+          includeInlineAnchors: imageAreaStartRowOrOptions.includeInlineAnchors ?? false,
+          inlineImageStartRow: imageAreaStartRowOrOptions.inlineImageStartRow ?? 3,
+        };
   const JSZipModule = await import('jszip');
   const zip = (await JSZipModule.default.loadAsync(xlsxBuffer)) as unknown as ZipLike;
 
@@ -145,7 +174,12 @@ export async function extractXlsxImages(
     }
 
     // 商品画像エリア（imageAreaStartRow以降）のみを対象。ロゴ等は除外。
-    const areaAnchors = anchors.filter((a) => a.row >= imageAreaStartRow);
+    const areaAnchors = anchors.filter((a) => a.row >= options.imageAreaStartRow);
+    const inlineAnchors = options.includeInlineAnchors
+      ? anchors.filter(
+          (a) => a.row >= options.inlineImageStartRow && a.row < options.imageAreaStartRow,
+        )
+      : [];
 
     // 行を昇順に → 行インデックスが「①〜⑥ / ⑦〜⑫」のブロックを決める
     const rowsSorted = [...new Set(areaAnchors.map((a) => a.row))].sort((x, y) => x - y);
@@ -155,7 +189,7 @@ export async function extractXlsxImages(
     for (const a of areaAnchors) {
       const rowBlock = rowsSorted.indexOf(a.row);
       const colRank = colsSorted.indexOf(a.col);
-      const no = rowBlock * productsPerRow + colRank + 1;
+      const no = rowBlock * options.productsPerRow + colRank + 1;
 
       const buffer = Buffer.from(
         (await zip.files[a.media].async('arraybuffer')) as ArrayBuffer,
@@ -166,15 +200,47 @@ export async function extractXlsxImages(
         mediaPath: a.media,
         mimeType: extToMime(path.extname(a.media).toLowerCase()),
         buffer,
+        anchorRow: a.row,
+        anchorCol: a.col,
+        mappingStrategy: 'number_grid',
+      });
+    }
+
+    for (const a of inlineAnchors) {
+      const buffer = Buffer.from(
+        (await zip.files[a.media].async('arraybuffer')) as ArrayBuffer,
+      );
+      images.push({
+        no: null,
+        sheetName,
+        mediaPath: a.media,
+        mimeType: extToMime(path.extname(a.media).toLowerCase()),
+        buffer,
+        anchorRow: a.row,
+        anchorCol: a.col,
+        mappingStrategy: 'inline_anchor',
       });
     }
 
     // エリア外（ロゴ等）は unmatched として記録
-    for (const a of anchors.filter((a) => a.row < imageAreaStartRow)) {
-      unmatched.push({ mediaPath: a.media, anchorRow: a.row, sheetName });
+    for (const a of anchors.filter(
+      (a) =>
+        a.row < options.imageAreaStartRow &&
+        !(options.includeInlineAnchors && a.row >= options.inlineImageStartRow),
+    )) {
+      unmatched.push({ mediaPath: a.media, anchorRow: a.row, anchorCol: a.col, sheetName });
     }
   }
 
-  images.sort((a, b) => (a.sheetName ?? '').localeCompare(b.sheetName ?? '') || a.no - b.no);
+  const strategyRank = (s: ExtractedImage['mappingStrategy']) =>
+    s === 'number_grid' ? 0 : 1;
+  images.sort(
+    (a, b) =>
+      (a.sheetName ?? '').localeCompare(b.sheetName ?? '') ||
+      strategyRank(a.mappingStrategy) - strategyRank(b.mappingStrategy) ||
+      (a.no ?? Number.MAX_SAFE_INTEGER) - (b.no ?? Number.MAX_SAFE_INTEGER) ||
+      a.anchorRow - b.anchorRow ||
+      a.anchorCol - b.anchorCol,
+  );
   return { images, unmatched };
 }
