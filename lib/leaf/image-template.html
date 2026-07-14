@@ -432,12 +432,22 @@
       el.style.fontSize = size + 'px';
     }
   }
-  document.querySelectorAll('.js-fit').forEach(function(el) {
-    fitHeight(el, Number(el.dataset.minFont || 28));
-  });
-  document.querySelectorAll('.js-fit-width').forEach(function(el) {
-    fitWidth(el, Number(el.dataset.minFont || 16));
-  });
+  // Webフォント読込前（フォールバック書体）で縮小判定すると、後から本物の
+  // Noto Sans JP に切り替わった際に文字幅が変わり「表示直後に縮む」ズレが起きる。
+  // フォント確定後に一度だけ判定することで、初回表示から最終サイズに固定する。
+  function runFit() {
+    document.querySelectorAll('.js-fit').forEach(function(el) {
+      fitHeight(el, Number(el.dataset.minFont || 28));
+    });
+    document.querySelectorAll('.js-fit-width').forEach(function(el) {
+      fitWidth(el, Number(el.dataset.minFont || 16));
+    });
+  }
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(runFit);
+  } else {
+    runFit();
+  }
 
   /* 画像はCSSの object-fit: contain で制御するためJS制御は不要になりました */
 </script>
