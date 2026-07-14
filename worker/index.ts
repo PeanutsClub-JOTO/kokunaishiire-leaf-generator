@@ -70,6 +70,10 @@ async function processJob(job: Database['public']['Tables']['jobs']['Row']): Pro
         break;
       case 'import_eml':
         await handleImportEml(job, supabase);
+        if (job.quotation_id) {
+          const queued = await queueLeafletImageJobsForQuotation(supabase, job.quotation_id);
+          console.log(`[worker] リーフ画像生成ジョブを ${queued} 件キューしました`);
+        }
         break;
       case 'gmail_scan':
         await handleGmailScan(job, supabase);

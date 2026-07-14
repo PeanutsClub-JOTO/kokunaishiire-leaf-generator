@@ -14,38 +14,67 @@ import {
   safeQuotationStorageName,
 } from '@/lib/storage/quotation-file';
 
+type BundleManifest = {
+  version: 1;
+  files: Array<{
+    originalName: string;
+    storageName: string;
+    storagePath: string;
+    sourceType: 'xlsx';
+  }>;
+};
+
 export async function POST(req: NextRequest) {
   const supabase = createServerClient();
 
   const contentType = req.headers.get('content-type') ?? '';
 
-  let sourceType: 'xlsx' | 'gsheet' | 'pdf';
-  let sourceRef: string;
+  let sourceType: 'xlsx' | 'gsheet' | 'pdf' | 'eml' | null = null;
+  let sourceRef: string | null = null;
   let fileName: string | null = null;
   let fileBuffer: Buffer | null = null;
+  let bundleFiles: File[] = [];
 
   if (contentType.includes('multipart/form-data')) {
     // ファイルアップロード
     const form = await req.formData();
-    const file = form.get('file') as File | null;
-    if (!file) {
+    const multiFiles = form.getAll('files').filter((value): value is File => value instanceof File);
+    const singleFile = form.get('file') as File | null;
+    const files = multiFiles.length > 0 ? multiFiles : singleFile ? [singleFile] : [];
+    if (files.length === 0) {
       return NextResponse.json({ error: 'file is required' }, { status: 400 });
     }
 
-    const detected = detectQuotationSourceType(file.name);
-    if (!detected) {
-      return NextResponse.json(
-        { error: '対応ファイルは .xlsx .xls .pdf のみです' },
-        { status: 400 },
-      );
+    if (files.length > 1) {
+      for (const file of files) {
+        const detected = detectQuotationSourceType(file.name);
+        if (detected !== 'xlsx') {
+          return NextResponse.json(
+            { error: '複数資料の同時取り込みは .xlsx .xls のみ対応しています' },
+            { status: 400 },
+          );
+        }
+      }
+      sourceType = 'eml';
+      sourceRef = `multi-${Date.now()}.json`;
+      bundleFiles = files;
+    } else {
+      const file = files[0];
+      const detected = detectQuotationSourceType(file.name);
+      if (!detected) {
+        return NextResponse.json(
+          { error: '対応ファイルは .xlsx .xls .pdf のみです' },
+          { status: 400 },
+        );
+      }
+
+      sourceType = detected;
+      fileName = safeQuotationStorageName(file.name);
+
+      const arrayBuffer = await file.arrayBuffer();
+      fileBuffer = Buffer.from(arrayBuffer);
+      sourceRef = fileName;
     }
-
-    sourceType = detected;
-    fileName = safeQuotationStorageName(file.name);
-
-    const arrayBuffer = await file.arrayBuffer();
-    fileBuffer = Buffer.from(arrayBuffer);
-    sourceRef = fileName;
   } else {
     // JSON（GSheet）
     const body = await req.json();
@@ -54,6 +83,14 @@ export async function POST(req: NextRequest) {
     }
     sourceType = 'gsheet';
     sourceRef = body.source_ref;
+  }
+
+  if (!sourceType || !sourceRef) {
+    return NextResponse.json({ error: 'source could not be resolved' }, { status: 400 });
+  }
+
+  if (contentType.includes('multipart/form-data') && bundleFiles.length === 0 && !fileBuffer) {
+    return NextResponse.json({ error: 'file is required' }, { status: 400 });
   }
 
   // quotations レコード作成
@@ -90,13 +127,63 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // 複数Excel資料を1案件として保存
+  if (bundleFiles.length > 0) {
+    const manifest: BundleManifest = { version: 1, files: [] };
+
+    for (let i = 0; i < bundleFiles.length; i++) {
+      const file = bundleFiles[i];
+      const storageName = safeQuotationStorageName(file.name, Date.now() + i);
+      const storagePath = `quotations/${quotation.id}/bundle/${storageName}`;
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const { error: storageErr } = await supabase.storage
+        .from('quotation-files')
+        .upload(storagePath, buffer, {
+          contentType: quotationUploadContentType(file.name),
+        });
+
+      if (storageErr) {
+        console.warn('Bundle file upload failed:', storageErr.message);
+        await supabase.from('quotations').delete().eq('id', quotation.id);
+        return NextResponse.json(
+          { error: `複数資料の保存に失敗しました: ${storageErr.message}` },
+          { status: 500 },
+        );
+      }
+
+      manifest.files.push({
+        originalName: file.name,
+        storageName,
+        storagePath,
+        sourceType: 'xlsx',
+      });
+    }
+
+    const manifestPath = `quotations/${quotation.id}/${sourceRef}`;
+    const { error: manifestErr } = await supabase.storage
+      .from('quotation-files')
+      .upload(manifestPath, Buffer.from(JSON.stringify(manifest, null, 2)), {
+        contentType: 'application/json',
+      });
+    if (manifestErr) {
+      console.warn('Bundle manifest upload failed:', manifestErr.message);
+      await supabase.from('quotations').delete().eq('id', quotation.id);
+      return NextResponse.json(
+        { error: `複数資料の管理情報保存に失敗しました: ${manifestErr.message}` },
+        { status: 500 },
+      );
+    }
+  }
+
   // ジョブをキューに追加
   const jobType =
     sourceType === 'gsheet'
       ? 'import_gsheet'
       : sourceType === 'pdf'
         ? 'import_pdf'
-        : 'import_xlsx';
+        : sourceType === 'eml'
+          ? 'import_eml'
+          : 'import_xlsx';
 
   const { data: job, error: jobErr } = await supabase
     .from('jobs')

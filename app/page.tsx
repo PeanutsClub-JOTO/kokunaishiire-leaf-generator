@@ -24,6 +24,7 @@ function statusBadge(status: string) {
 }
 
 function sourceLabel(type: string) {
+  if (type === 'eml') return '複数資料';
   return type === 'gsheet' ? 'GSheet' : type.toUpperCase();
 }
 

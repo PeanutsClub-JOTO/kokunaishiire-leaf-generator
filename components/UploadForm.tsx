@@ -15,6 +15,7 @@ export default function UploadForm() {
   const [status, setStatus] = useState<JobStatus>('idle');
   const [message, setMessage] = useState('');
   const [quotationId, setQuotationId] = useState<string | null>(null);
+  const [fileCount, setFileCount] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const gsheetRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -69,14 +70,18 @@ export default function UploadForm() {
 
   async function submitFile(e: React.FormEvent) {
     e.preventDefault();
-    const file = fileRef.current?.files?.[0];
-    if (!file) { setMessage('ファイルを選択してください'); return; }
+    const files = Array.from(fileRef.current?.files ?? []);
+    if (files.length === 0) { setMessage('ファイルを選択してください'); return; }
 
     setStatus('uploading');
-    setMessage('アップロード中...');
+    setMessage(files.length > 1 ? `${files.length}件の資料をアップロード中...` : 'アップロード中...');
 
     const form = new FormData();
-    form.append('file', file);
+    if (files.length > 1) {
+      for (const file of files) form.append('files', file);
+    } else {
+      form.append('file', files[0]);
+    }
 
     try {
       const res = await fetch('/api/quotations', { method: 'POST', body: form });
@@ -128,13 +133,17 @@ export default function UploadForm() {
     <div className="space-y-5">
       {/* Excel / PDF アップロード */}
       <form onSubmit={submitFile} className="space-y-3">
-        <label className="block text-xs font-medium text-zinc-500">Excel / PDF（.xlsx .xls .pdf）</label>
+        <label className="block text-xs font-medium text-zinc-500">
+          Excel / PDF（.xlsx .xls .pdf）・複数Excel資料も選択可
+        </label>
         <div className="flex items-center gap-3">
           <input
             ref={fileRef}
             type="file"
             accept=".xlsx,.xls,.pdf"
+            multiple
             disabled={busy}
+            onChange={() => setFileCount(fileRef.current?.files?.length ?? 0)}
             className="flex-1 text-sm text-zinc-600 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-zinc-100 file:text-zinc-700 hover:file:bg-zinc-200 disabled:opacity-50 cursor-pointer"
           />
           <button
@@ -145,6 +154,11 @@ export default function UploadForm() {
             取り込む
           </button>
         </div>
+        {fileCount > 1 && (
+          <p className="text-xs text-zinc-500">
+            {fileCount}件を1つの案件として取り込み、見積書・商品リスト・発注書を自動判定して統合します。
+          </p>
+        )}
       </form>
 
       {/* 区切り */}
