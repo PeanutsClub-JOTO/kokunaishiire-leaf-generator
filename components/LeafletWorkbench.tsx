@@ -1054,16 +1054,9 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             label="単価"
             calcValue={calcSizingRaw.unitPrice}
             override={calcOv?.unitPrice ?? ''}
-            onChange={(v) => {
-              // 単価×入数=卸価格 の関係を保つため、単価入力時に卸価格を自動追従させる
-              const patch: Partial<CalcOverride> = { unitPrice: v };
-              const n = Number(v);
-              if (v !== '' && Number.isFinite(n) && n >= 0) {
-                const leafQty = Number(calcOv?.leafQty || '') || calcSizingRaw.leafQty;
-                if (leafQty > 0) patch.wholesale = String(Math.round(n * leafQty));
-              }
-              patchCalcOverride(patch);
-            }}
+            // 単価は卸価格÷入数から算出される値であって、単価側からの手動編集で
+            // 卸価格を追従させることはしない（卸価格→単価の一方向のみ）。
+            onChange={(v) => patchCalcOverride({ unitPrice: v })}
             unit="円"
             warn={sizing.unitPrice > sizingSettings.unitPriceCap}
           />
@@ -1123,11 +1116,32 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           </button>
           {showCalc && (
             <div className="rounded border border-zinc-200 bg-white p-2 text-[11px] space-y-1">
-              <CalcRow label="1ロット原価" value={`¥${fmt(sizing.minLotPrice)}`} warn={sizing.minLotPrice > sizingSettings.costCap} />
+              <CalcRow label="入力値（商品情報より）" value="" />
+              {editedItems.map((it, idx) => (
+                <CalcRow
+                  key={it.productId}
+                  label={
+                    editedItems.length === 1
+                      ? `仕入単価 × 最小ロット入数`
+                      : `構成${idx + 1}: 仕入単価 × 最小ロット入数 × 比率`
+                  }
+                  value={
+                    editedItems.length === 1
+                      ? `¥${fmt(it.cost)} × ${fmt(it.minLotQty)}個`
+                      : `¥${fmt(it.cost)} × ${fmt(it.minLotQty)} × ${fmt(it.ratio)}`
+                  }
+                  indent
+                />
+              ))}
+              <CalcRow label="1ロット原価（＝上を合計）" value={`¥${fmt(sizing.minLotPrice)}`} warn={sizing.minLotPrice > sizingSettings.costCap} />
               <CalcRow label={`上限¥${fmt(sizingSettings.costCap)}以内の最大ロット数`} value="" />
               <CalcRow label={`floor(${fmt(sizingSettings.costCap)} ÷ ${fmt(sizing.minLotPrice)})`} value={`${fmt(sizing.maxLots)} ロット`} indent />
               <CalcRow label="掲載入数" value="" />
-              <CalcRow label={`1ロット入数 × ${fmt(sizing.maxLots)}`} value={`${fmt(sizing.leafQty)} 個`} indent />
+              <CalcRow
+                label={`1ロット入数(${fmt(editedItems.reduce((a, it) => a + it.minLotQty * it.ratio, 0))}) × ${fmt(sizing.maxLots)}ロット`}
+                value={`${fmt(sizing.leafQty)} 個`}
+                indent
+              />
               <CalcRow label="仕入原価合計" value="" />
               <CalcRow label={`¥${fmt(sizing.minLotPrice)} × ${fmt(sizing.maxLots)}`} value={`¥${fmt(sizing.costTotal)}`} indent />
               <CalcRow label="掲載卸売価格" value="" />
