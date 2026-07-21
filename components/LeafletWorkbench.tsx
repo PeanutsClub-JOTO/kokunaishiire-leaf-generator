@@ -83,6 +83,31 @@ type Props = {
 const DEFAULT_SETTINGS: SizingV2Settings = { profitCoef: 1.25, salesAdd: 3000, unitPriceCap: 1000, costCap: 33000, halfBase: 16500 };
 
 type Sizing = { ok: boolean; reason?: string; setCost: number; unitPrice: number; leafQty: number; costTotal: number; wholesale: number; isHalfOk: boolean; minLotPrice: number; maxLots: number };
+
+/** 計算結果の手動上書き（未指定はサイジング自動計算値を使う） */
+type CalcOverride = {
+  unitPrice: string;
+  leafQty: string;
+  wholesale: string;
+  /** '' = auto, 'ok' = 可, 'ng' = 不可 */
+  isHalfOk: '' | 'ok' | 'ng';
+};
+const EMPTY_CALC_OVERRIDE: CalcOverride = { unitPrice: '', leafQty: '', wholesale: '', isHalfOk: '' };
+function applyCalcOverride(sizing: Sizing, ov: CalcOverride | undefined): Sizing {
+  if (!ov) return sizing;
+  const parseNum = (raw: string, fallback: number): number => {
+    if (raw === '') return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+  return {
+    ...sizing,
+    unitPrice: parseNum(ov.unitPrice, sizing.unitPrice),
+    leafQty: parseNum(ov.leafQty, sizing.leafQty),
+    wholesale: parseNum(ov.wholesale, sizing.wholesale),
+    isHalfOk: ov.isHalfOk === '' ? sizing.isHalfOk : ov.isHalfOk === 'ok',
+  };
+}
 type JobStatus = {
   status?: string;
   error_message?: string | null;
@@ -260,6 +285,27 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     return map;
   }, [leaflets]);
   const [itemEdits, setItemEdits] = useState<Record<string, ItemEdit>>(initialItemEdits);
+  // 計算結果の手動上書き（リーフID単位）。永続化された値が自動計算値と異なる場合は
+  // 「手動で設定された」とみなして初期値に流し込む。
+  const [calcOverrides, setCalcOverrides] = useState<Record<string, CalcOverride>>(() => {
+    const map: Record<string, CalcOverride> = {};
+    for (const l of leaflets) {
+      const raw = calcSizing(l.items, sizingSettings);
+      const ov: CalcOverride = { unitPrice: '', leafQty: '', wholesale: '', isHalfOk: '' };
+      if (Math.round(l.unitPrice) !== Math.round(raw.unitPrice)) ov.unitPrice = String(Math.round(l.unitPrice));
+      if (l.leafQty !== raw.leafQty) ov.leafQty = String(l.leafQty);
+      if (l.wholesalePrice !== raw.wholesale) ov.wholesale = String(l.wholesalePrice);
+      if (l.isHalfOk !== raw.isHalfOk) ov.isHalfOk = l.isHalfOk ? 'ok' : 'ng';
+      map[l.id] = ov;
+    }
+    return map;
+  });
+  function patchCalcOverride(patch: Partial<CalcOverride>) {
+    setCalcOverrides((prev) => ({
+      ...prev,
+      [selected.id]: { ...(prev[selected.id] ?? EMPTY_CALC_OVERRIDE), ...patch },
+    }));
+  }
   function patchItemEdit(productId: string, patch: Partial<ItemEdit>) {
     setItemEdits((prev) => ({ ...prev, [productId]: { ...prev[productId], ...patch } }));
   }
@@ -379,7 +425,9 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   );
   const isAssort = editedItems.length > 1;
   const isTemporaryAssort = isAssort && selected.items.length === 1;
-  const sizing = useMemo(() => calcSizing(editedItems, sizingSettings), [editedItems, sizingSettings]);
+  const calcSizingRaw = useMemo(() => calcSizing(editedItems, sizingSettings), [editedItems, sizingSettings]);
+  const calcOv = calcOverrides[selected.id];
+  const sizing = useMemo(() => applyCalcOverride(calcSizingRaw, calcOv), [calcSizingRaw, calcOv]);
   const leafForPreview = useMemo<WorkbenchLeaflet>(
     () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, productCode: edit.productCode, pjNo: edit.pjNo, isSingle: !isAssort }),
     [selected, edit, isAssort],
@@ -498,6 +546,11 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           pj_no: edit.pjNo.trim() || null,
           main_copy_override: edit.mainCopy.trim() || null,
           image_overrides: buildOverridesPayload(),
+          unit_price: sizing.unitPrice,
+          leaf_qty: sizing.leafQty,
+          wholesale_price: sizing.wholesale,
+          cost_total: sizing.costTotal,
+          is_half_ok: sizing.isHalfOk,
         }),
       });
       const patchData = await patchRes.json().catch(() => ({}));
@@ -615,6 +668,18 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       setMessage(selected.status === 'final' ? 'Drive転送中…' : '確定してDriveへ転送中…');
 
       await persistItemEdits();
+      // 確定前に計算値の上書きも保存しておく（finalize APIは leaflets 更新をしないため）
+      await fetch(`/api/leaflets/${selected.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          unit_price: sizing.unitPrice,
+          leaf_qty: sizing.leafQty,
+          wholesale_price: sizing.wholesale,
+          cost_total: sizing.costTotal,
+          is_half_ok: sizing.isHalfOk,
+        }),
+      });
       const res = await fetch(`/api/leaflets/${selected.id}/finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -985,10 +1050,40 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             label={isAssort ? '仕入原価（構成1組）' : '仕入単価（元単価）'}
             value={`${fmt(sizing.setCost)}円`}
           />
-          <Row label="単価" value={`${fmt(sizing.unitPrice)}円`} warn={sizing.unitPrice > sizingSettings.unitPriceCap} />
-          <Row label="入数" value={`${fmt(sizing.leafQty)}個`} />
-          <Row label="卸価格" value={`${fmt(sizing.wholesale)}円`} />
-          <Row label="ハーフ" value={sizing.isHalfOk ? '可' : '不可'} />
+          <EditableNumberRow
+            label="単価"
+            calcValue={calcSizingRaw.unitPrice}
+            override={calcOv?.unitPrice ?? ''}
+            onChange={(v) => patchCalcOverride({ unitPrice: v })}
+            unit="円"
+            warn={sizing.unitPrice > sizingSettings.unitPriceCap}
+          />
+          <EditableNumberRow
+            label="入数"
+            calcValue={calcSizingRaw.leafQty}
+            override={calcOv?.leafQty ?? ''}
+            onChange={(v) => patchCalcOverride({ leafQty: v })}
+            unit="個"
+          />
+          <EditableNumberRow
+            label="卸価格"
+            calcValue={calcSizingRaw.wholesale}
+            override={calcOv?.wholesale ?? ''}
+            onChange={(v) => patchCalcOverride({ wholesale: v })}
+            unit="円"
+          />
+          <div className="flex justify-between items-center">
+            <span className="text-zinc-500 text-xs">ハーフ</span>
+            <select
+              value={calcOv?.isHalfOk ?? ''}
+              onChange={(e) => patchCalcOverride({ isHalfOk: e.target.value as '' | 'ok' | 'ng' })}
+              className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-semibold text-zinc-800 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            >
+              <option value="">自動: {calcSizingRaw.isHalfOk ? '可' : '不可'}</option>
+              <option value="ok">可</option>
+              <option value="ng">不可</option>
+            </select>
+          </div>
           <Row
             label="Drive"
             value={
@@ -1111,6 +1206,37 @@ function Row({ label, value, warn }: { label: string; value: string; warn?: bool
     <div className="flex justify-between">
       <span className="text-zinc-500 text-xs">{label}</span>
       <span className={`font-semibold ${warn ? 'text-red-600' : 'text-zinc-800'}`}>{value}</span>
+    </div>
+  );
+}
+
+function EditableNumberRow({
+  label, calcValue, override, onChange, unit, warn,
+}: {
+  label: string;
+  calcValue: number;
+  override: string;
+  onChange: (value: string) => void;
+  unit: string;
+  warn?: boolean;
+}) {
+  const overridden = override !== '' && Number.isFinite(Number(override));
+  return (
+    <div className="flex justify-between items-center">
+      <span className="text-zinc-500 text-xs">
+        {label}
+        {overridden && <span className="ml-1 text-[9px] font-semibold text-indigo-500">手動</span>}
+      </span>
+      <div className="flex items-center gap-1">
+        <input
+          value={override}
+          onChange={(e) => onChange(e.target.value)}
+          inputMode="decimal"
+          placeholder={String(Math.round(calcValue))}
+          className={`w-20 rounded border border-zinc-300 bg-white px-2 py-0.5 text-right text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-400 ${warn ? 'text-red-600' : 'text-zinc-800'}`}
+        />
+        <span className="text-xs text-zinc-500">{unit}</span>
+      </div>
     </div>
   );
 }

@@ -49,6 +49,12 @@ export async function PATCH(
     main_copy_override?: string | null;
     /** { [productId]: { scale, x, y } } 商品画像の拡大率・位置調整 */
     image_overrides?: Record<string, { scale?: number; x?: number; y?: number }>;
+    /** 計算結果の手動上書き（未指定なら既存値を維持） */
+    unit_price?: number | null;
+    leaf_qty?: number | null;
+    wholesale_price?: number | null;
+    cost_total?: number | null;
+    is_half_ok?: boolean | null;
   };
 
   const { data, error } = await supabase
