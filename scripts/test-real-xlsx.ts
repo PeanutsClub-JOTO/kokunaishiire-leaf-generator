@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { extractXlsxCells } from '../lib/import/xlsx-cells';
 import { extractXlsxImages } from '../lib/import/xlsx-images';
+import { matchImageToProduct, type ProductImageTarget } from '../lib/import/image-matching';
 import { generateLeafImageLocal, selectLeafTheme, detectCategory, flavorOf } from '../lib/leaf/generate-image';
 import { generateCatchphrase } from '../lib/leaf/ai-catchphrase';
 import { generateBackground } from '../lib/leaf/ai-background';
@@ -30,15 +31,39 @@ async function main() {
   // 画像を抽出
   const imageResult = await extractXlsxImages(buf);
 
-  // 画像マップ: "sheetName:no" → アップスケール済みdataURL
-  console.log(`画像アップスケール中（${imageResult.images.length}枚）...`);
-  const imageByKey = new Map<string, string>();
-  for (const img of imageResult.images) {
-    const key = `${img.sheetName ?? ''}:${img.no}`;
-    const dataUrl = await upscaleToDataUrl(img.buffer, img.mimeType);
-    imageByKey.set(key, dataUrl);
+  // 画像マップ: productKey(sheetName:productIndex) → アップスケール済みdataURL
+  console.log(`画像マッチング＋アップスケール中（${imageResult.images.length}枚）...`);
+  const productKey = (sheetName: string, index: number) => `${sheetName}#${index}`;
+  const targets: ProductImageTarget[] = [];
+  for (const s of cellResult) {
+    s.products.forEach((p, idx) => {
+      if (!p.product_name) return;
+      targets.push({
+        id: productKey(s.sheet_name, idx),
+        sheetName: s.sheet_name,
+        janCode: p.jan_code,
+        productCode: p.product_code,
+        productName: p.product_name,
+        makerName: p.maker_name,
+        specRaw: p.spec_raw,
+        retailPrice: p.retail_price,
+        cost: p.cost,
+      });
+    });
   }
-  console.log(`画像キー: ${[...imageByKey.keys()].join(', ')}`);
+  const imageByKey = new Map<string, string>();
+  const used = new Set<string>();
+  const enableLlm = Boolean(process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.startsWith('your-'));
+  for (const img of imageResult.images) {
+    const match = await matchImageToProduct(img, targets, {
+      excludeProductIds: used,
+      enableLlmFallback: enableLlm,
+    }).catch(() => null);
+    if (!match) continue;
+    used.add(match.productId);
+    imageByKey.set(match.productId, await upscaleToDataUrl(img.buffer, img.mimeType));
+  }
+  console.log(`画像割当: ${imageByKey.size}/${imageResult.images.length}枚`);
 
   console.log(`シート数: ${cellResult.length}`);
   console.log(`抽出画像数: ${imageResult.images.length}\n`);
@@ -51,12 +76,12 @@ async function main() {
   for (const sheet of cellResult) {
     console.log(`\n=== シート: ${sheet.sheet_name} (${sheet.products.length}件) ===`);
 
-    for (const p of sheet.products) {
+    for (let pIdx = 0; pIdx < sheet.products.length; pIdx++) {
+      const p = sheet.products[pIdx];
       if (!p.product_name) continue;
 
       imageIndex++;
-      const imgKey = `${sheet.sheet_name}:${p.no}`;
-      const productImage = p.no != null ? imageByKey.get(imgKey) : undefined;
+      const productImage = imageByKey.get(`${sheet.sheet_name}#${pIdx}`);
       const irisu = p.case_qty ?? 1;
       const minLot = p.min_lot_qty ?? 1;
 

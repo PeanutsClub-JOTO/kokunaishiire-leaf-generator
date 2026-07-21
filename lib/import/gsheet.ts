@@ -73,21 +73,8 @@ export async function importFromGSheet(
   try {
     const imageResult = await extractXlsxImages(xlsxBuffer);
     imageCount = imageResult.images.length;
-    imageMappingErrors = imageResult.unmatched.length;
-
-    // 画像をSheetDataに結合（imageUrlはStorage保存後のURLを設定する想定）
-    for (const sheet of sheets) {
-      for (const product of sheet.products) {
-        const img = imageResult.images.find((i) => i.no === product.no);
-        if (img) {
-          // 実際のシステムではSupabase Storageにアップロードしてimage_urlに設定
-          // ここではbase64のデータURLを一時的に使用（開発用）
-          product.parse_errors = product.parse_errors ?? [];
-        } else if (product.no !== null) {
-          product.parse_errors = [...(product.parse_errors ?? []), 'no_image'];
-        }
-      }
-    }
+    // 画像→商品の紐付けは worker/handlers 側で matchImageToProduct が担当。
+    // ここでは枚数の情報だけ返し、ヒューリスティックな紐付けは行わない。
   } catch (err) {
     console.warn('[gsheet] Image extraction failed:', err);
     imageMappingErrors++;

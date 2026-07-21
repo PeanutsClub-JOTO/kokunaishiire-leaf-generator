@@ -141,54 +141,74 @@ export function classifyWorkbookRole(fileName: string, sheets: RawSheetData[]): 
   return 'reference';
 }
 
-function imageBySourceProduct(
+export type MergeWorkbookBundleOptions = {
+  enableLlmFallback?: boolean;
+};
+
+async function imageBySourceProduct(
   source: WorkbookBundleSource,
   role: WorkbookRole,
-): Map<string, ExtractedImage> {
+  enableLlm: boolean,
+): Promise<Map<string, ExtractedImage>> {
   const targets: ProductImageTarget[] = [];
   source.sheets.forEach((sheet, sheetIndex) => {
     sheet.products.forEach((product, sourceIndex) => {
       targets.push({
         id: `${sheetIndex}:${sourceIndex}`,
         sheetName: sheet.sheet_name,
-        no: product.no,
         janCode: product.jan_code,
         productCode: product.product_code,
-        sourceRow: product.source_row ?? null,
-        sourceCol: product.source_col ?? null,
-        sourceIndex,
+        productName: product.product_name,
+        makerName: product.maker_name,
+        specRaw: product.spec_raw,
+        retailPrice: product.retail_price,
+        cost: product.cost,
       });
     });
   });
 
   const result = new Map<string, ExtractedImage>();
   const usedProductIds = new Set<string>();
-  const usedGridSlots = new Set<string>();
 
+  // Pass 1: 決定論（周辺テキスト × 商品情報）を全画像に対して行う
+  const unresolved: ExtractedImage[] = [];
   for (const img of source.images) {
-    const gridSlot =
-      img.mappingStrategy === 'number_grid' && img.no !== null
-        ? `${img.sheetName ?? ''}|${img.no}`
-        : null;
-    if (gridSlot && usedGridSlots.has(gridSlot)) continue;
-
-    const match = matchImageToProduct(img, targets, {
+    const match = await matchImageToProduct(img, targets, {
       excludeProductIds: usedProductIds,
-      preferSequentialFallback: true,
+      enableLlmFallback: false,
     });
-    if (!match) continue;
+    if (match) {
+      usedProductIds.add(match.productId);
+      result.set(match.productId, img);
+    } else {
+      unresolved.push(img);
+    }
+  }
 
-    usedProductIds.add(match.productId);
-    if (gridSlot) usedGridSlots.add(gridSlot);
-    result.set(match.productId, img);
+  // Pass 2: 残りは LLM 画像内容判定にかける（許可されている場合のみ）
+  if (enableLlm) {
+    for (const img of unresolved) {
+      const match = await matchImageToProduct(img, targets, {
+        excludeProductIds: usedProductIds,
+        enableLlmFallback: true,
+      }).catch(() => null);
+      if (!match) continue;
+      if (usedProductIds.has(match.productId)) continue;
+      usedProductIds.add(match.productId);
+      result.set(match.productId, img);
+    }
   }
 
   void role;
   return result;
 }
 
-function sourceProducts(source: WorkbookBundleSource, role: WorkbookRole): SourceProduct[] {
-  const images = imageBySourceProduct(source, role);
+async function sourceProducts(
+  source: WorkbookBundleSource,
+  role: WorkbookRole,
+  enableLlm: boolean,
+): Promise<SourceProduct[]> {
+  const images = await imageBySourceProduct(source, role, enableLlm);
   return source.sheets.flatMap((sheet, sheetIndex) =>
     sheet.products.map((product, sourceIndex) => ({
       id: `${sheetIndex}:${sourceIndex}`,
@@ -287,13 +307,20 @@ function uniqueSheetName(name: string, used: Set<string>): string {
   return next;
 }
 
-export function mergeWorkbookBundle(sources: WorkbookBundleSource[]): WorkbookBundleMergeResult {
+export async function mergeWorkbookBundle(
+  sources: WorkbookBundleSource[],
+  options: MergeWorkbookBundleOptions = {},
+): Promise<WorkbookBundleMergeResult> {
+  const enableLlm = options.enableLlmFallback ?? true;
   const roles = sources.map((source) => ({
     source,
     role: classifyWorkbookRole(source.fileName, source.sheets),
   }));
 
-  const allProducts = roles.flatMap(({ source, role }) => sourceProducts(source, role));
+  const perRoleProducts = await Promise.all(
+    roles.map(({ source, role }) => sourceProducts(source, role, enableLlm)),
+  );
+  const allProducts = perRoleProducts.flat();
   const hasQuotation = roles.some(({ role }) => role === 'quotation');
   const baseProducts = allProducts.filter((product) =>
     hasQuotation ? product.role === 'quotation' : true,

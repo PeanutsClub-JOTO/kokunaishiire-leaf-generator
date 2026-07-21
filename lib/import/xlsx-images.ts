@@ -1,48 +1,33 @@
 /**
- * Excel埋め込み画像抽出 (仕様書 v2.1 §5.3)
+ * Excel埋め込み画像抽出
  *
- * xlsx を zip として展開し、xl/drawings/*.xml のアンカー位置から
- * 商品No.（①〜⑫）との対応を機械的に特定する。
+ * 位置ヒューリスティック（行ブロック×列順位から商品Noを決める等）は用いず、
+ * どこに配置されていても全ての画像を回収する。商品との紐付けは
+ * `image-matching.ts` が「画像周辺のセル文字列」と「商品表の内容」の突合、
+ * 続いてLLMの画像内容判定で行う。
  *
- * 実見積の実レイアウト（重要）:
- *  - 画像は oneCellAnchor で配置される（twoCellAnchor ではない）。
- *  - 商品①〜⑥は同一行に「列違い」で並ぶ（行ではなく列で商品を区別する）。
- *  - 次の行に⑦〜⑫が同様に並ぶ。
- *  - 先頭にロゴ画像（最上部の行）が1枚入ることがある → 商品エリア外として除外。
- *  - 1ファイルが複数シート（御見積書_01/02/03…）の場合、各シートが
- *    別々の drawing を持ち、シートごとに①〜⑫を再採番する。
- *    → 画像はシート名でタグ付けし、取込側でシート単位に突き合わせる。
- *
- * SheetJS Community版は画像/アンカー抽出不可のため zip を直接解析する。
+ * このモジュールは画像バイナリ+アンカー位置+アンカー周辺の少数セルの
+ * テキスト（キャプション相当）だけを抽出する。
  */
 import * as path from 'path';
+import * as XLSX from 'xlsx';
 
 export type ExtractedImage = {
-  no: number | null;        // シート内の商品No（1〜12）。行近接マッチ用画像ではnull
-  sheetName: string | null; // 所属シート名（マルチシート対応）
-  mediaPath: string;        // zip内のメディアパス
+  sheetName: string | null;
+  mediaPath: string;
   mimeType: string;
   buffer: Buffer;
-  anchorRow: number;        // Excel上の画像アンカー行（0-indexed）
-  anchorCol: number;        // Excel上の画像アンカー列（0-indexed）
-  mappingStrategy: 'number_grid' | 'inline_anchor';
+  anchorRow: number;    // 0-indexed
+  anchorCol: number;    // 0-indexed
+  /**
+   * 画像アンカー周辺（±2行 / ±1列）のセル値を連結したもの。
+   * 画像に直接紐付いているキャプション（JAN/商品コード/品名/価格 等）を拾う目的。
+   */
+  nearbyText: string;
 };
 
 export type ImageExtractionResult = {
   images: ExtractedImage[];
-  unmatched: { mediaPath: string; anchorRow: number; anchorCol: number; sheetName: string | null }[];
-};
-
-export type ImageExtractionOptions = {
-  imageAreaStartRow?: number;
-  productsPerRow?: number;
-  /**
-   * true の場合、標準の商品画像エリアより上にある画像も候補として返す。
-   * 表の行内・横に配置された商品画像を、後段で近い商品行に紐付けるために使う。
-   */
-  includeInlineAnchors?: boolean;
-  /** ロゴ除外用。既定では最上部付近の画像を候補にしない。 */
-  inlineImageStartRow?: number;
 };
 
 type ZipLike = {
@@ -56,29 +41,26 @@ async function readText(zip: ZipLike, file: string): Promise<string> {
 }
 
 /**
- * drawingファイル名（例: "drawing1.xml"）→ シート名 の対応表を作る。
- * workbook.xml（シート名↔r:id）→ workbook.xml.rels（r:id↔sheetN.xml）
- * → sheetN.xml.rels（sheetN↔drawingM）の連鎖をたどる。
+ * drawingファイル名 → シート名 の対応表。
+ * workbook.xml → workbook.xml.rels → sheetN.xml.rels をたどる。
  */
 async function buildDrawingToSheet(zip: ZipLike): Promise<Map<string, string>> {
-  const result = new Map<string, string>(); // drawingFile -> sheetName
+  const result = new Map<string, string>();
   const wb = await readText(zip, 'xl/workbook.xml');
   const wbRels = await readText(zip, 'xl/_rels/workbook.xml.rels');
   if (!wb) return result;
 
-  // r:id -> worksheets/sheetN.xml
   const ridToTarget = new Map<string, string>();
   for (const m of wbRels.matchAll(/Id="(rId\d+)"[^>]+Target="([^"]+)"/g)) {
     ridToTarget.set(m[1], m[2]);
   }
 
-  // <sheet name="..." ... r:id="rIdN"/>（属性順は name が先の前提でよい）
   for (const m of wb.matchAll(/<sheet\b[^>]*\bname="([^"]+)"[^>]*r:id="(rId\d+)"/g)) {
     const name = m[1];
     const rid = m[2];
     const target = ridToTarget.get(rid);
     if (!target) continue;
-    const sheetFile = target.split('/').pop(); // sheet1.xml
+    const sheetFile = target.split('/').pop();
     if (!sheetFile) continue;
 
     const sheetRels = await readText(zip, `xl/worksheets/_rels/${sheetFile}.rels`);
@@ -104,37 +86,67 @@ function extToMime(ext: string): string {
 }
 
 /**
- * xlsx の zip を展開して埋め込み画像を抽出し、シート名＋商品No.に対応付ける。
- *
- * @param xlsxBuffer xlsx ファイルのバイナリ
- * @param imageAreaStartRow 商品画像エリアの開始行（0-indexed）。これ未満はロゴ等として除外。
- * @param productsPerRow 1行あたりの商品数（既定6 = ①〜⑥ / ⑦〜⑫）
+ * 指定セルを中心に ±rowRadius 行 / ±colRadius 列の範囲のセル値を集めて連結する。
+ * 空セルは飛ばし、余分な空白を潰して1文字列にする。
  */
-export async function extractXlsxImages(
-  xlsxBuffer: Buffer,
-  imageAreaStartRowOrOptions: number | ImageExtractionOptions = 20,
-  productsPerRowArg: number = 6,
-): Promise<ImageExtractionResult> {
-  const options: Required<ImageExtractionOptions> =
-    typeof imageAreaStartRowOrOptions === 'number'
-      ? {
-          imageAreaStartRow: imageAreaStartRowOrOptions,
-          productsPerRow: productsPerRowArg,
-          includeInlineAnchors: false,
-          inlineImageStartRow: 3,
-        }
-      : {
-          imageAreaStartRow: imageAreaStartRowOrOptions.imageAreaStartRow ?? 20,
-          productsPerRow: imageAreaStartRowOrOptions.productsPerRow ?? 6,
-          includeInlineAnchors: imageAreaStartRowOrOptions.includeInlineAnchors ?? false,
-          inlineImageStartRow: imageAreaStartRowOrOptions.inlineImageStartRow ?? 3,
-        };
+export function collectNearbyText(
+  ws: XLSX.WorkSheet | undefined,
+  anchorRow: number,
+  anchorCol: number,
+  rowRadius = 2,
+  colRadius = 1,
+): string {
+  if (!ws) return '';
+  const parts: string[] = [];
+  const rowStart = Math.max(0, anchorRow - rowRadius);
+  const rowEnd = anchorRow + rowRadius;
+  const colStart = Math.max(0, anchorCol - colRadius);
+  const colEnd = anchorCol + colRadius;
+  const merges: XLSX.Range[] = ws['!merges'] ?? [];
+
+  const resolvedCell = (r: number, c: number): string | null => {
+    for (const m of merges) {
+      if (r >= m.s.r && r <= m.e.r && c >= m.s.c && c <= m.e.c) {
+        const cell = ws[XLSX.utils.encode_cell({ r: m.s.r, c: m.s.c })];
+        return cell?.v == null ? null : String(cell.v);
+      }
+    }
+    const cell = ws[XLSX.utils.encode_cell({ r, c })];
+    return cell?.v == null ? null : String(cell.v);
+  };
+
+  const seen = new Set<string>();
+  for (let r = rowStart; r <= rowEnd; r++) {
+    for (let c = colStart; c <= colEnd; c++) {
+      const v = resolvedCell(r, c);
+      if (!v) continue;
+      const trimmed = v.trim();
+      if (!trimmed) continue;
+      if (seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      parts.push(trimmed);
+    }
+  }
+  return parts.join(' ');
+}
+
+/**
+ * xlsx の zip を展開して埋め込み画像を抽出する。
+ * 位置に基づく振り分けは一切行わない（商品紐付けは呼び出し側の責務）。
+ */
+export async function extractXlsxImages(xlsxBuffer: Buffer): Promise<ImageExtractionResult> {
   const JSZipModule = await import('jszip');
   const zip = (await JSZipModule.default.loadAsync(xlsxBuffer)) as unknown as ZipLike;
 
-  const images: ExtractedImage[] = [];
-  const unmatched: ImageExtractionResult['unmatched'] = [];
+  // 周辺テキスト取得用にワークブックも一度パースしておく
+  let workbook: XLSX.WorkBook | null = null;
+  try {
+    workbook = XLSX.read(xlsxBuffer, { type: 'buffer', cellFormula: false, cellHTML: false });
+  } catch {
+    workbook = null;
+  }
 
+  const images: ExtractedImage[] = [];
   const drawingToSheet = await buildDrawingToSheet(zip);
 
   const drawingFiles = Object.keys(zip.files).filter((f) =>
@@ -145,8 +157,8 @@ export async function extractXlsxImages(
     const xml = await readText(zip, drawingPath);
     const drawingName = path.basename(drawingPath);
     const sheetName = drawingToSheet.get(drawingName) ?? null;
+    const ws = sheetName && workbook ? workbook.Sheets[sheetName] : undefined;
 
-    // drawing の .rels（rId → メディアパス）
     const relsPath = `${path.dirname(drawingPath)}/_rels/${drawingName}.rels`;
     const relsContent = await readText(zip, relsPath);
     const rIdToMedia = new Map<string, string>();
@@ -157,10 +169,8 @@ export async function extractXlsxImages(
       rIdToMedia.set(m[1], resolved);
     }
 
-    // oneCellAnchor / twoCellAnchor の両方をブロック単位で取得
+    // oneCellAnchor / twoCellAnchor をブロック単位で走査（画像=r:embedを持つもののみ）
     const blockRe = /<xdr:(oneCellAnchor|twoCellAnchor)\b[\s\S]*?<\/xdr:\1>/g;
-    type Anchor = { row: number; col: number; media: string };
-    const anchors: Anchor[] = [];
     for (const blk of xml.matchAll(blockRe)) {
       const body = blk[0];
       const from = body.match(
@@ -170,77 +180,29 @@ export async function extractXlsxImages(
       if (!from || !emb) continue;
       const media = rIdToMedia.get(emb[1]);
       if (!media || !zip.files[media]) continue;
-      anchors.push({ col: parseInt(from[1], 10), row: parseInt(from[2], 10), media });
-    }
 
-    // 商品画像エリア（imageAreaStartRow以降）のみを対象。ロゴ等は除外。
-    const areaAnchors = anchors.filter((a) => a.row >= options.imageAreaStartRow);
-    const inlineAnchors = options.includeInlineAnchors
-      ? anchors.filter(
-          (a) => a.row >= options.inlineImageStartRow && a.row < options.imageAreaStartRow,
-        )
-      : [];
-
-    // 行を昇順に → 行インデックスが「①〜⑥ / ⑦〜⑫」のブロックを決める
-    const rowsSorted = [...new Set(areaAnchors.map((a) => a.row))].sort((x, y) => x - y);
-    // 列位置の集合を昇順に → 列順位が商品No.の列方向位置を決める（欠番に強い）
-    const colsSorted = [...new Set(areaAnchors.map((a) => a.col))].sort((x, y) => x - y);
-
-    for (const a of areaAnchors) {
-      const rowBlock = rowsSorted.indexOf(a.row);
-      const colRank = colsSorted.indexOf(a.col);
-      const no = rowBlock * options.productsPerRow + colRank + 1;
-
+      const anchorCol = parseInt(from[1], 10);
+      const anchorRow = parseInt(from[2], 10);
       const buffer = Buffer.from(
-        (await zip.files[a.media].async('arraybuffer')) as ArrayBuffer,
+        (await zip.files[media].async('arraybuffer')) as ArrayBuffer,
       );
       images.push({
-        no,
         sheetName,
-        mediaPath: a.media,
-        mimeType: extToMime(path.extname(a.media).toLowerCase()),
+        mediaPath: media,
+        mimeType: extToMime(path.extname(media).toLowerCase()),
         buffer,
-        anchorRow: a.row,
-        anchorCol: a.col,
-        mappingStrategy: 'number_grid',
+        anchorRow,
+        anchorCol,
+        nearbyText: collectNearbyText(ws, anchorRow, anchorCol),
       });
-    }
-
-    for (const a of inlineAnchors) {
-      const buffer = Buffer.from(
-        (await zip.files[a.media].async('arraybuffer')) as ArrayBuffer,
-      );
-      images.push({
-        no: null,
-        sheetName,
-        mediaPath: a.media,
-        mimeType: extToMime(path.extname(a.media).toLowerCase()),
-        buffer,
-        anchorRow: a.row,
-        anchorCol: a.col,
-        mappingStrategy: 'inline_anchor',
-      });
-    }
-
-    // エリア外（ロゴ等）は unmatched として記録
-    for (const a of anchors.filter(
-      (a) =>
-        a.row < options.imageAreaStartRow &&
-        !(options.includeInlineAnchors && a.row >= options.inlineImageStartRow),
-    )) {
-      unmatched.push({ mediaPath: a.media, anchorRow: a.row, anchorCol: a.col, sheetName });
     }
   }
 
-  const strategyRank = (s: ExtractedImage['mappingStrategy']) =>
-    s === 'number_grid' ? 0 : 1;
   images.sort(
     (a, b) =>
       (a.sheetName ?? '').localeCompare(b.sheetName ?? '') ||
-      strategyRank(a.mappingStrategy) - strategyRank(b.mappingStrategy) ||
-      (a.no ?? Number.MAX_SAFE_INTEGER) - (b.no ?? Number.MAX_SAFE_INTEGER) ||
       a.anchorRow - b.anchorRow ||
       a.anchorCol - b.anchorCol,
   );
-  return { images, unmatched };
+  return { images };
 }

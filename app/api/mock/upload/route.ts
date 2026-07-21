@@ -18,14 +18,13 @@ export async function POST(req: NextRequest) {
 
   const [sheets, { images }] = await Promise.all([
     Promise.resolve(extractXlsxCells(buf)),
-    extractXlsxImages(buf, { includeInlineAnchors: true }),
+    extractXlsxImages(buf),
   ]);
 
   // 画像マップ: productId → base64 data URL（プレビュー用）
   const imageByProductId = new Map<string, string>();
   const productTargets: ProductImageTarget[] = [];
   const usedProductIds = new Set<string>();
-  const usedGridSlots = new Set<string>();
 
   for (const sheet of sheets) {
     sheet.products.forEach((p, sourceIndex) => {
@@ -34,28 +33,41 @@ export async function POST(req: NextRequest) {
       productTargets.push({
         id,
         sheetName: sheet.sheet_name,
-        no: p.no,
         janCode: p.jan_code,
-        sourceRow: p.source_row ?? null,
-        sourceIndex,
+        productCode: p.product_code,
+        productName: p.product_name,
+        makerName: p.maker_name,
+        specRaw: p.spec_raw,
+        retailPrice: p.retail_price,
+        cost: p.cost,
       });
     });
   }
 
+  // Pass 1: 決定論マッチのみ（モックUIはLLM無しで即応する）
+  const unresolved: typeof images = [];
   for (const img of images) {
-    const gridSlot =
-      img.mappingStrategy === 'number_grid' && img.no !== null
-        ? `${img.sheetName ?? ''}|${img.no}`
-        : null;
-    if (gridSlot && usedGridSlots.has(gridSlot)) continue;
-
-    const match = matchImageToProduct(img, productTargets, {
+    const match = await matchImageToProduct(img, productTargets, {
       excludeProductIds: usedProductIds,
-      preferSequentialFallback: true,
+      enableLlmFallback: false,
     });
-    if (!match) continue;
+    if (!match) {
+      unresolved.push(img);
+      continue;
+    }
     usedProductIds.add(match.productId);
-    if (gridSlot) usedGridSlots.add(gridSlot);
+    const b64 = img.buffer.toString('base64');
+    imageByProductId.set(match.productId, `data:${img.mimeType};base64,${b64}`);
+  }
+
+  // Pass 2: LLM画像内容マッチ
+  for (const img of unresolved) {
+    const match = await matchImageToProduct(img, productTargets, {
+      excludeProductIds: usedProductIds,
+      enableLlmFallback: true,
+    }).catch(() => null);
+    if (!match || usedProductIds.has(match.productId)) continue;
+    usedProductIds.add(match.productId);
     const b64 = img.buffer.toString('base64');
     imageByProductId.set(match.productId, `data:${img.mimeType};base64,${b64}`);
   }

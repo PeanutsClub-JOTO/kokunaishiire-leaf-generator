@@ -52,8 +52,8 @@ async function extractWorkbookSource(fileName: string, buffer: Buffer): Promise<
   const sheets = extractXlsxCells(buffer);
   const legacy = isLegacyXls(buffer);
   const imageResult = legacy
-    ? await extractXlsImages(buffer, { includeInlineAnchors: true })
-    : await extractXlsxImages(buffer, { includeInlineAnchors: true });
+    ? await extractXlsImages(buffer)
+    : await extractXlsxImages(buffer);
 
   return {
     fileName,
@@ -135,7 +135,7 @@ export async function handleImportEml(job: Job, supabase: Supabase): Promise<voi
       sources.push(await extractWorkbookSource(file.originalName, buffer));
     }
 
-    const merged = mergeWorkbookBundle(sources);
+    const merged = await mergeWorkbookBundle(sources);
     console.log(
       `[import-eml] 複数資料役割判定: ${merged.diagnostics.files
         .map((file) => `${file.fileName}:${file.role}(${file.productCount}件/${file.imageCount}画像)`)

@@ -1,26 +1,18 @@
 /**
  * 旧形式 .xls（BIFF8/OLE2）埋め込み画像抽出
  *
- * .xls は zip ではなく OLE2 複合ドキュメントのため、xlsx-images.ts の
- * zip 解析は使えない。SheetJS 同梱の CFB パーサで Workbook ストリームを
- * 取り出し、BIFF レコードを直接走査する。
- *
- * 構造:
- *  - MsoDrawingGroup (0x00EB) + Continue (0x003C): Escher BSE ストアに
- *    画像バイナリ（PNG/JPEG blip）が pib 順で格納される。
- *  - 各シートサブストリームの MsoDrawing (0x00EC): 図形ごとに
- *    OPT レコードの pib プロパティ(0x0104) と ClientAnchor (0xF010) を持つ。
- *    アンカーの (row, col) から xlsx と同じ「行ブロック×列順位」で商品No.を決める。
+ * xlsx-images.ts と同じ方針: 位置ヒューリスティックはかけず、全ての画像を
+ * anchor+周辺テキスト付きで返す。商品との紐付けは image-matching.ts が行う。
  */
-import type { ExtractedImage, ImageExtractionOptions, ImageExtractionResult } from './xlsx-images';
+import * as XLSX from 'xlsx';
+import type { ExtractedImage, ImageExtractionResult } from './xlsx-images';
+import { collectNearbyText } from './xlsx-images';
 
 const PNG_SIG = Buffer.from('89504e470d0a1a0a', 'hex');
 const JPG_SIG = Buffer.from('ffd8ff', 'hex');
 
 type BiffRecord = { type: number; pos: number; len: number; dataStart: number };
-
 type Blip = { mimeType: string; buffer: Buffer } | null;
-
 type ShapeAnchor = { pib: number | null; col: number; row: number };
 
 function scanBiffRecords(wb: Buffer): BiffRecord[] {
@@ -35,7 +27,6 @@ function scanBiffRecords(wb: Buffer): BiffRecord[] {
   return records;
 }
 
-/** BoundSheet8 (0x0085) からシート名とサブストリーム開始位置を得る */
 function readSheets(wb: Buffer, records: BiffRecord[]): Array<{ name: string; start: number }> {
   const sheets: Array<{ name: string; start: number }> = [];
   for (const r of records) {
@@ -52,7 +43,6 @@ function readSheets(wb: Buffer, records: BiffRecord[]): Array<{ name: string; st
   return sheets;
 }
 
-/** 指定タイプのレコード（直後のContinue含む）を連結する */
 function concatRecordsWithContinue(
   wb: Buffer,
   records: BiffRecord[],
@@ -75,7 +65,6 @@ function concatRecordsWithContinue(
   return Buffer.concat(parts);
 }
 
-/** Escher BSE (0xF007) ストアから blip を pib 順に取り出す */
 function extractBlips(group: Buffer): Blip[] {
   const blips: Blip[] = [];
 
@@ -88,7 +77,6 @@ function extractBlips(group: Buffer): Blip[] {
       const bodyLen = Math.min(len, buf.length - p - 8);
       const body = buf.slice(p + 8, p + 8 + bodyLen);
       if (type === 0xf007) {
-        // BSE: 中身から画像シグネチャを探す（PNG/JPEG以外はプレースホルダ）
         const pngIdx = body.indexOf(PNG_SIG);
         const jpgIdx = body.indexOf(JPG_SIG);
         if (pngIdx >= 0 && (jpgIdx < 0 || pngIdx < jpgIdx)) {
@@ -96,7 +84,7 @@ function extractBlips(group: Buffer): Blip[] {
         } else if (jpgIdx >= 0) {
           blips.push({ mimeType: 'image/jpeg', buffer: body.slice(jpgIdx) });
         } else {
-          blips.push(null); // pib 番号を保つため位置だけ確保
+          blips.push(null);
         }
       } else if ((verInst & 0x000f) === 0x000f) {
         walk(body);
@@ -109,7 +97,6 @@ function extractBlips(group: Buffer): Blip[] {
   return blips;
 }
 
-/** シートの MsoDrawing から (pib, row, col) の図形一覧を得る */
 function extractShapeAnchors(drawing: Buffer): ShapeAnchor[] {
   const shapes: ShapeAnchor[] = [];
   let curPib: number | null = null;
@@ -123,7 +110,6 @@ function extractShapeAnchors(drawing: Buffer): ShapeAnchor[] {
       const bodyLen = Math.min(len, buf.length - p - 8);
       const body = buf.slice(p + 8, p + 8 + bodyLen);
       if (type === 0xf00b || type === 0xf121 || type === 0xf122) {
-        // OPT: プロパティ配列から pib (0x0104) を拾う
         const nProps = verInst >> 4;
         let q = 0;
         for (let k = 0; k < nProps && q + 6 <= body.length; k++) {
@@ -133,7 +119,6 @@ function extractShapeAnchors(drawing: Buffer): ShapeAnchor[] {
           q += 6;
         }
       } else if (type === 0xf010 && body.length >= 18) {
-        // ClientAnchor: flag(2) + col1,dx1,row1,dy1,...（各2B）
         shapes.push({ pib: curPib, col: body.readUInt16LE(2), row: body.readUInt16LE(6) });
         curPib = null;
       } else if ((verInst & 0x000f) === 0x000f) {
@@ -147,46 +132,30 @@ function extractShapeAnchors(drawing: Buffer): ShapeAnchor[] {
   return shapes;
 }
 
-/**
- * .xls（BIFF8）から埋め込み画像を抽出し、シート名＋商品No.に対応付ける。
- * 対応付けロジック（行ブロック×列順位）は xlsx 版と同一。
- */
-export async function extractXlsImages(
-  xlsBuffer: Buffer,
-  imageAreaStartRowOrOptions: number | ImageExtractionOptions = 20,
-  productsPerRowArg: number = 6,
-): Promise<ImageExtractionResult> {
-  const options: Required<ImageExtractionOptions> =
-    typeof imageAreaStartRowOrOptions === 'number'
-      ? {
-          imageAreaStartRow: imageAreaStartRowOrOptions,
-          productsPerRow: productsPerRowArg,
-          includeInlineAnchors: false,
-          inlineImageStartRow: 3,
-        }
-      : {
-          imageAreaStartRow: imageAreaStartRowOrOptions.imageAreaStartRow ?? 20,
-          productsPerRow: imageAreaStartRowOrOptions.productsPerRow ?? 6,
-          includeInlineAnchors: imageAreaStartRowOrOptions.includeInlineAnchors ?? false,
-          inlineImageStartRow: imageAreaStartRowOrOptions.inlineImageStartRow ?? 3,
-        };
-  const XLSX = (await import('xlsx')).default;
-  const cfb = XLSX.CFB.read(xlsBuffer as unknown as Uint8Array, { type: 'buffer' });
-  const entry = XLSX.CFB.find(cfb, 'Workbook') ?? XLSX.CFB.find(cfb, 'Book');
-  if (!entry?.content) return { images: [], unmatched: [] };
+export async function extractXlsImages(xlsBuffer: Buffer): Promise<ImageExtractionResult> {
+  const XLSXMod = (await import('xlsx')).default as typeof XLSX;
+  const cfb = XLSXMod.CFB.read(xlsBuffer as unknown as Uint8Array, { type: 'buffer' });
+  const entry = XLSXMod.CFB.find(cfb, 'Workbook') ?? XLSXMod.CFB.find(cfb, 'Book');
+  if (!entry?.content) return { images: [] };
 
   const wb = Buffer.from(entry.content as Uint8Array);
   const records = scanBiffRecords(wb);
   const sheets = readSheets(wb, records);
 
-  // グローバル部の BSE ストア（画像本体）
   const globalsEnd = sheets[0]?.start ?? wb.length;
   const group = concatRecordsWithContinue(wb, records, 0x00eb, 0, globalsEnd);
   const blips = extractBlips(group);
-  if (blips.every((b) => b === null)) return { images: [], unmatched: [] };
+  if (blips.every((b) => b === null)) return { images: [] };
+
+  // 周辺テキスト取得用に SheetJS でも読み込む（別パス経由）
+  let workbook: XLSX.WorkBook | null = null;
+  try {
+    workbook = XLSXMod.read(xlsBuffer, { type: 'buffer', cellFormula: false, cellHTML: false });
+  } catch {
+    workbook = null;
+  }
 
   const images: ExtractedImage[] = [];
-  const unmatched: ImageExtractionResult['unmatched'] = [];
 
   for (let i = 0; i < sheets.length; i++) {
     const sheet = sheets[i];
@@ -194,80 +163,37 @@ export async function extractXlsImages(
     const drawing = concatRecordsWithContinue(wb, records, 0x00ec, sheet.start, end);
     if (drawing.length === 0) continue;
 
+    const ws = workbook ? workbook.Sheets[sheet.name] : undefined;
+
     const shapes = extractShapeAnchors(drawing).filter(
       (s): s is ShapeAnchor & { pib: number } =>
         s.pib !== null && s.pib >= 1 && s.pib <= blips.length && blips[s.pib - 1] !== null,
     );
 
-    const areaShapes = shapes.filter((s) => s.row >= options.imageAreaStartRow);
-    const inlineShapes = options.includeInlineAnchors
-      ? shapes.filter(
-          (s) => s.row >= options.inlineImageStartRow && s.row < options.imageAreaStartRow,
-        )
-      : [];
-    const rowsSorted = [...new Set(areaShapes.map((s) => s.row))].sort((x, y) => x - y);
-    const colsSorted = [...new Set(areaShapes.map((s) => s.col))].sort((x, y) => x - y);
-
-    for (const s of areaShapes) {
+    for (const s of shapes) {
       const blip = blips[s.pib - 1];
       if (!blip) continue;
-      const rowBlock = rowsSorted.indexOf(s.row);
-      const colRank = colsSorted.indexOf(s.col);
       images.push({
-        no: rowBlock * options.productsPerRow + colRank + 1,
         sheetName: sheet.name,
         mediaPath: `biff/blip${s.pib}`,
         mimeType: blip.mimeType,
         buffer: blip.buffer,
         anchorRow: s.row,
         anchorCol: s.col,
-        mappingStrategy: 'number_grid',
-      });
-    }
-
-    for (const s of inlineShapes) {
-      const blip = blips[s.pib - 1];
-      if (!blip) continue;
-      images.push({
-        no: null,
-        sheetName: sheet.name,
-        mediaPath: `biff/blip${s.pib}`,
-        mimeType: blip.mimeType,
-        buffer: blip.buffer,
-        anchorRow: s.row,
-        anchorCol: s.col,
-        mappingStrategy: 'inline_anchor',
-      });
-    }
-
-    for (const s of shapes.filter(
-      (s) =>
-        s.row < options.imageAreaStartRow &&
-        !(options.includeInlineAnchors && s.row >= options.inlineImageStartRow),
-    )) {
-      unmatched.push({
-        mediaPath: `biff/blip${s.pib}`,
-        anchorRow: s.row,
-        anchorCol: s.col,
-        sheetName: sheet.name,
+        nearbyText: collectNearbyText(ws, s.row, s.col),
       });
     }
   }
 
-  const strategyRank = (s: ExtractedImage['mappingStrategy']) =>
-    s === 'number_grid' ? 0 : 1;
   images.sort(
     (a, b) =>
       (a.sheetName ?? '').localeCompare(b.sheetName ?? '') ||
-      strategyRank(a.mappingStrategy) - strategyRank(b.mappingStrategy) ||
-      (a.no ?? Number.MAX_SAFE_INTEGER) - (b.no ?? Number.MAX_SAFE_INTEGER) ||
       a.anchorRow - b.anchorRow ||
       a.anchorCol - b.anchorCol,
   );
-  return { images, unmatched };
+  return { images };
 }
 
-/** OLE2（旧xls）シグネチャ判定 */
 export function isLegacyXls(buffer: Buffer): boolean {
   return (
     buffer.length >= 8 &&

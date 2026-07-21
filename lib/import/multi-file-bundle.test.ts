@@ -39,18 +39,17 @@ function sheet(products: RawProductRow[], sheetName = 'Sheet1'): RawSheetData {
 
 function image(
   mediaPath: string,
-  no: number | null,
+  nearbyText: string,
   overrides: Partial<ExtractedImage> = {},
 ): ExtractedImage {
   return {
-    no,
     sheetName: 'Sheet1',
     mediaPath,
     mimeType: 'image/png',
     buffer: Buffer.from(mediaPath),
     anchorRow: 20,
     anchorCol: 1,
-    mappingStrategy: 'number_grid',
+    nearbyText,
     ...overrides,
   };
 }
@@ -74,7 +73,7 @@ describe('multi-file workbook bundle', () => {
     ).toBe('order');
   });
 
-  it('uses quotation rows as primary and fills missing catalog details by JAN', () => {
+  it('uses quotation rows as primary and fills missing catalog details by JAN', async () => {
     const quote = sheet([
       row({
         product_name: '(新)リッチバタークッキー',
@@ -95,14 +94,17 @@ describe('multi-file workbook bundle', () => {
       }),
     ]);
 
-    const result = mergeWorkbookBundle([
-      { fileName: '銀の汐　見積書2026年5月.xlsx', sheets: [quote], images: [] },
-      {
-        fileName: '銀の汐商品リスト -2026.5.xlsx',
-        sheets: [catalog],
-        images: [image('catalog-image', 1)],
-      },
-    ]);
+    const result = await mergeWorkbookBundle(
+      [
+        { fileName: '銀の汐　見積書2026年5月.xlsx', sheets: [quote], images: [] },
+        {
+          fileName: '銀の汐商品リスト -2026.5.xlsx',
+          sheets: [catalog],
+          images: [image('catalog-image', '4962407015031 リッチバタークッキー')],
+        },
+      ],
+      { enableLlmFallback: false },
+    );
 
     expect(result.sheets).toHaveLength(1);
     expect(result.sheets[0].products).toHaveLength(1);
@@ -113,54 +115,36 @@ describe('multi-file workbook bundle', () => {
     expect(result.productImages[0].image.mediaPath).toBe('catalog-image');
   });
 
-  it('links horizontal catalog images by product column before sheet order', () => {
+  it('links catalog images by nearby JAN text', async () => {
     const quote = sheet([
       row({ product_name: '商品A', jan_code: '1111111111111', cost: 100 }),
       row({ product_name: '商品B', jan_code: '2222222222222', cost: 100 }),
       row({ product_name: '商品C', jan_code: '3333333333333', cost: 100 }),
     ]);
     const catalog = sheet([
-      row({
-        product_name: '商品A',
-        jan_code: '1111111111111',
-        source_row: 12,
-        source_col: 2,
-      }),
-      row({
-        product_name: '商品B',
-        jan_code: '2222222222222',
-        source_row: 12,
-        source_col: 12,
-      }),
-      row({
-        product_name: '商品C',
-        jan_code: '3333333333333',
-        source_row: 12,
-        source_col: 22,
-      }),
+      row({ product_name: '商品A', jan_code: '1111111111111' }),
+      row({ product_name: '商品B', jan_code: '2222222222222' }),
+      row({ product_name: '商品C', jan_code: '3333333333333' }),
     ]);
 
-    const result = mergeWorkbookBundle([
-      { fileName: '見積書.xlsx', sheets: [quote], images: [] },
-      {
-        fileName: '商品リスト.xlsx',
-        sheets: [catalog],
-        images: [
-          image('image-for-c', null, {
-            anchorRow: 5,
-            anchorCol: 23,
-            mappingStrategy: 'inline_anchor',
-          }),
-        ],
-      },
-    ]);
+    const result = await mergeWorkbookBundle(
+      [
+        { fileName: '見積書.xlsx', sheets: [quote], images: [] },
+        {
+          fileName: '商品リスト.xlsx',
+          sheets: [catalog],
+          images: [image('image-for-c', 'JAN 3333333333333 商品C')],
+        },
+      ],
+      { enableLlmFallback: false },
+    );
 
     expect(result.productImages).toHaveLength(1);
     expect(result.productImages[0].sourceIndex).toBe(2);
     expect(result.productImages[0].image.mediaPath).toBe('image-for-c');
   });
 
-  it('fills missing catalog details and carries images by product code when JAN is missing', () => {
+  it('fills missing catalog details and carries images by product code when JAN is missing', async () => {
     const quote = sheet([
       row({
         product_name: 'チョコクッキー',
@@ -173,19 +157,20 @@ describe('multi-file workbook bundle', () => {
         product_name: 'チョコクッキー',
         product_code: ' ab 1234 ',
         shelf_life_days: 180,
-        source_row: 12,
-        source_col: 2,
       }),
     ]);
 
-    const result = mergeWorkbookBundle([
-      { fileName: '見積書.xlsx', sheets: [quote], images: [] },
-      {
-        fileName: '商品リスト.xlsx',
-        sheets: [catalog],
-        images: [image('code-match-image', null, { anchorRow: 12, anchorCol: 2 })],
-      },
-    ]);
+    const result = await mergeWorkbookBundle(
+      [
+        { fileName: '見積書.xlsx', sheets: [quote], images: [] },
+        {
+          fileName: '商品リスト.xlsx',
+          sheets: [catalog],
+          images: [image('code-match-image', '品番: ab 1234 チョコクッキー')],
+        },
+      ],
+      { enableLlmFallback: false },
+    );
 
     expect(result.sheets[0].products).toHaveLength(1);
     expect(result.sheets[0].products[0].shelf_life_days).toBe(180);
@@ -193,98 +178,108 @@ describe('multi-file workbook bundle', () => {
     expect(result.productImages[0].image.mediaPath).toBe('code-match-image');
   });
 
-  it('does not merge same-name products when both sides have different product codes', () => {
-    const result = mergeWorkbookBundle([
-      {
-        fileName: '見積書.xlsx',
-        sheets: [
-          sheet([
-            row({
-              product_name: 'ミックスナッツ',
-              product_code: 'A-001',
-              cost: 100,
-            }),
-          ]),
-        ],
-        images: [],
-      },
-      {
-        fileName: '商品リスト.xlsx',
-        sheets: [
-          sheet([
-            row({
-              product_name: 'ミックスナッツ',
-              product_code: 'B-001',
-              shelf_life_days: 180,
-            }),
-          ]),
-        ],
-        images: [],
-      },
-    ]);
+  it('does not merge same-name products when both sides have different product codes', async () => {
+    const result = await mergeWorkbookBundle(
+      [
+        {
+          fileName: '見積書.xlsx',
+          sheets: [
+            sheet([
+              row({
+                product_name: 'ミックスナッツ',
+                product_code: 'A-001',
+                cost: 100,
+              }),
+            ]),
+          ],
+          images: [],
+        },
+        {
+          fileName: '商品リスト.xlsx',
+          sheets: [
+            sheet([
+              row({
+                product_name: 'ミックスナッツ',
+                product_code: 'B-001',
+                shelf_life_days: 180,
+              }),
+            ]),
+          ],
+          images: [],
+        },
+      ],
+      { enableLlmFallback: false },
+    );
 
     expect(result.sheets[0].products).toHaveLength(1);
     expect(result.sheets[0].products[0].shelf_life_days).toBeNull();
   });
 
-  it('does not carry images through fuzzy name-only support matches', () => {
-    const result = mergeWorkbookBundle([
-      {
-        fileName: '見積書.xlsx',
-        sheets: [sheet([row({ product_name: '銀汐 ナッツミックス', cost: 100 })])],
-        images: [],
-      },
-      {
-        fileName: '商品リスト.xlsx',
-        sheets: [
-          sheet([
-            row({
-              product_name: 'ナッツミックス',
-              shelf_life_days: 180,
-              source_row: 12,
-              source_col: 2,
-            }),
-          ]),
-        ],
-        images: [image('fuzzy-image', null, { anchorRow: 12, anchorCol: 2 })],
-      },
-    ]);
+  it('does not carry images through fuzzy name-only support matches', async () => {
+    const result = await mergeWorkbookBundle(
+      [
+        {
+          fileName: '見積書.xlsx',
+          sheets: [sheet([row({ product_name: '銀汐 ナッツミックス', cost: 100 })])],
+          images: [],
+        },
+        {
+          fileName: '商品リスト.xlsx',
+          sheets: [
+            sheet([
+              row({
+                product_name: 'ナッツミックス',
+                shelf_life_days: 180,
+              }),
+            ]),
+          ],
+          images: [image('fuzzy-image', '')],
+        },
+      ],
+      { enableLlmFallback: false },
+    );
 
     expect(result.sheets[0].products[0].shelf_life_days).toBe(180);
     expect(result.productImages).toHaveLength(0);
   });
 
-  it('does not add catalog-only products when quotation rows exist', () => {
-    const result = mergeWorkbookBundle([
-      {
-        fileName: '見積書.xlsx',
-        sheets: [sheet([row({ product_name: '商品A', jan_code: '1111111111111', cost: 100 })])],
-        images: [],
-      },
-      {
-        fileName: '商品リスト.xlsx',
-        sheets: [sheet([row({ product_name: '商品B', jan_code: '2222222222222' })])],
-        images: [],
-      },
-    ]);
+  it('does not add catalog-only products when quotation rows exist', async () => {
+    const result = await mergeWorkbookBundle(
+      [
+        {
+          fileName: '見積書.xlsx',
+          sheets: [sheet([row({ product_name: '商品A', jan_code: '1111111111111', cost: 100 })])],
+          images: [],
+        },
+        {
+          fileName: '商品リスト.xlsx',
+          sheets: [sheet([row({ product_name: '商品B', jan_code: '2222222222222' })])],
+          images: [],
+        },
+      ],
+      { enableLlmFallback: false },
+    );
 
     expect(result.sheets[0].products).toHaveLength(1);
     expect(result.sheets[0].products[0].product_name).toBe('商品A');
   });
 
-  it('does not merge different quotation products only because names partially match', () => {
-    const result = mergeWorkbookBundle([
-      {
-        fileName: '見積書.xlsx',
-        sheets: [
-          sheet([
-            row({ product_name: 'チャンククッキー', cost: 50 }),
-            row({ product_name: 'いちごのチャンククッキー', cost: 50 }),
-          ]),
-        ],
-        images: [],
-      },
-    ]);
+  it('does not merge different quotation products only because names partially match', async () => {
+    const result = await mergeWorkbookBundle(
+      [
+        {
+          fileName: '見積書.xlsx',
+          sheets: [
+            sheet([
+              row({ product_name: 'チャンククッキー', cost: 50 }),
+              row({ product_name: 'いちごのチャンククッキー', cost: 50 }),
+            ]),
+          ],
+          images: [],
+        },
+      ],
+      { enableLlmFallback: false },
+    );
 
     expect(result.sheets[0].products.map((product) => product.product_name)).toEqual([
       'チャンククッキー',
@@ -292,19 +287,22 @@ describe('multi-file workbook bundle', () => {
     ]);
   });
 
-  it('keeps duplicate quotation names separate when JAN is missing', () => {
-    const result = mergeWorkbookBundle([
-      {
-        fileName: '見積書.xlsx',
-        sheets: [
-          sheet([
-            row({ product_name: 'アソートゼリー', spec_raw: '6個入', cost: 100 }),
-            row({ product_name: 'アソートゼリー', spec_raw: '12個入', cost: 180 }),
-          ]),
-        ],
-        images: [],
-      },
-    ]);
+  it('keeps duplicate quotation names separate when JAN is missing', async () => {
+    const result = await mergeWorkbookBundle(
+      [
+        {
+          fileName: '見積書.xlsx',
+          sheets: [
+            sheet([
+              row({ product_name: 'アソートゼリー', spec_raw: '6個入', cost: 100 }),
+              row({ product_name: 'アソートゼリー', spec_raw: '12個入', cost: 180 }),
+            ]),
+          ],
+          images: [],
+        },
+      ],
+      { enableLlmFallback: false },
+    );
 
     expect(result.sheets[0].products).toHaveLength(2);
     expect(result.sheets[0].products.map((product) => product.spec_raw)).toEqual([
@@ -313,31 +311,34 @@ describe('multi-file workbook bundle', () => {
     ]);
   });
 
-  it('does not fill catalog details by name when quotation name is ambiguous', () => {
-    const result = mergeWorkbookBundle([
-      {
-        fileName: '見積書.xlsx',
-        sheets: [
-          sheet([
-            row({ product_name: 'アソートゼリー', spec_raw: '6個入', cost: 100 }),
-            row({ product_name: 'アソートゼリー', spec_raw: '12個入', cost: 180 }),
-          ]),
-        ],
-        images: [],
-      },
-      {
-        fileName: '商品リスト.xlsx',
-        sheets: [
-          sheet([
-            row({
-              product_name: 'アソートゼリー',
-              shelf_life_days: 365,
-            }),
-          ]),
-        ],
-        images: [],
-      },
-    ]);
+  it('does not fill catalog details by name when quotation name is ambiguous', async () => {
+    const result = await mergeWorkbookBundle(
+      [
+        {
+          fileName: '見積書.xlsx',
+          sheets: [
+            sheet([
+              row({ product_name: 'アソートゼリー', spec_raw: '6個入', cost: 100 }),
+              row({ product_name: 'アソートゼリー', spec_raw: '12個入', cost: 180 }),
+            ]),
+          ],
+          images: [],
+        },
+        {
+          fileName: '商品リスト.xlsx',
+          sheets: [
+            sheet([
+              row({
+                product_name: 'アソートゼリー',
+                shelf_life_days: 365,
+              }),
+            ]),
+          ],
+          images: [],
+        },
+      ],
+      { enableLlmFallback: false },
+    );
 
     expect(result.sheets[0].products).toHaveLength(2);
     expect(result.sheets[0].products.map((product) => product.shelf_life_days)).toEqual([

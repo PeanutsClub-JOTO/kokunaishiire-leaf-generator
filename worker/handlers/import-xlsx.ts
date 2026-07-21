@@ -12,10 +12,6 @@ import { extractXlsxCells, type RawSheetData } from '../../lib/import/xlsx-cells
 import { extractXlsxImages } from '../../lib/import/xlsx-images';
 import { extractXlsImages, isLegacyXls } from '../../lib/import/xls-images';
 import { matchImageToProduct, type ProductImageTarget } from '../../lib/import/image-matching';
-import {
-  analyzeImageMatchSuspicion,
-  type ImageMatchRecord,
-} from '../../lib/import/image-match-suspicion';
 import { upscaleImageBuffer } from '../../lib/leaf/upscale-image';
 import { groupProducts, type ProductForGrouping } from '../../lib/assort/grouping';
 import { type Settings, DEFAULT_SETTINGS } from '../../lib/calc/engine';
@@ -32,7 +28,10 @@ type Job = Database['public']['Tables']['jobs']['Row'];
 
 type ProcessedProductRef = ProductImageTarget & {
   sheetId: string;
+  sourceIndex: number;
 };
+
+const IMAGE_MATCH_CONCURRENCY = 4;
 
 export async function loadSettings(supabase: Supabase): Promise<Settings> {
   const { data } = await supabase.from('app_settings').select('key, value');
@@ -166,11 +165,13 @@ export async function processRawSheets(
         id: db.id,
         sheetId: sheet.id,
         sheetName: rawSheet.sheet_name,
-        no: db.no,
         janCode: db.jan_code,
         productCode: raw.product_code ?? null,
-        sourceRow: raw.source_row ?? null,
-        sourceCol: raw.source_col ?? null,
+        productName: db.product_name,
+        makerName: db.maker_name,
+        specRaw: db.spec_raw,
+        retailPrice: db.retail_price,
+        cost: db.cost,
         sourceIndex: i,
       });
     }
@@ -371,41 +372,64 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
   // 旧形式 .xls（OLE2バイナリ）と .xlsx（zip）で抽出方法を自動判別する
   try {
     const imgResult = legacyXls
-      ? await extractXlsImages(buffer, { includeInlineAnchors: true })
-      : await extractXlsxImages(buffer, { includeInlineAnchors: true });
+      ? await extractXlsImages(buffer)
+      : await extractXlsxImages(buffer);
     console.log(
-      `[import-xlsx] 画像抽出: ${legacyXls ? 'xls(BIFF)' : 'xlsx(zip)'} images=${imgResult.images.length} unmatched=${imgResult.unmatched.length}`,
+      `[import-xlsx] 画像抽出: ${legacyXls ? 'xls(BIFF)' : 'xlsx(zip)'} images=${imgResult.images.length}`,
     );
     if (imgResult.images.length > 0) {
       const usedProductIds = new Set<string>();
-      const usedGridSlots = new Set<string>();
-      const matchStats = { no: 0, sheet_order: 0, nearest_row: 0, unmatched: 0 };
-      const matchRecords: ImageMatchRecord[] = [];
+      const matchStats = { jan: 0, product_code: 0, product_name: 0, price: 0, llm_vision: 0, unmatched: 0 };
+      const pendingUploads: { productId: string; img: (typeof imgResult.images)[number]; reason: string }[] = [];
 
+      // Pass 1: 決定論マッチ（周辺テキスト × 商品表）。同一商品を奪い合わないよう
+      // 直列で回して先勝ちする。
+      const unresolved: typeof imgResult.images = [];
       for (const img of imgResult.images) {
-        const gridSlot =
-          img.mappingStrategy === 'number_grid' && img.no !== null
-            ? `${img.sheetName ?? ''}|${img.no}`
-            : null;
-        if (gridSlot && usedGridSlots.has(gridSlot)) {
-          matchStats.unmatched++;
-          continue;
-        }
-
-        const match = matchImageToProduct(img, processedProducts, {
+        const match = await matchImageToProduct(img, processedProducts, {
           excludeProductIds: usedProductIds,
-          preferSequentialFallback: true,
+          enableLlmFallback: false,
         });
-        if (!match) {
-          matchStats.unmatched++;
-          continue;
+        if (match) {
+          usedProductIds.add(match.productId);
+          matchStats[match.reason]++;
+          pendingUploads.push({ productId: match.productId, img, reason: match.reason });
+        } else {
+          unresolved.push(img);
         }
-        const productId = match.productId;
-        usedProductIds.add(productId);
-        if (gridSlot) usedGridSlots.add(gridSlot);
-        matchStats[match.reason]++;
-        matchRecords.push({ image: img, match });
+      }
 
+      // Pass 2: LLM 画像内容マッチ。決定論で決まった商品は候補から外す。
+      // 並列で回してレイテンシを抑える。
+      for (let i = 0; i < unresolved.length; i += IMAGE_MATCH_CONCURRENCY) {
+        const chunk = unresolved.slice(i, i + IMAGE_MATCH_CONCURRENCY);
+        const chunkExclude = new Set(usedProductIds);
+        const results = await Promise.all(
+          chunk.map((img) =>
+            matchImageToProduct(img, processedProducts, {
+              excludeProductIds: chunkExclude,
+              enableLlmFallback: true,
+            }).catch((err) => {
+              console.warn('[import-xlsx] LLM match error:', err);
+              return null;
+            }),
+          ),
+        );
+        for (let j = 0; j < chunk.length; j++) {
+          const match = results[j];
+          const img = chunk[j];
+          if (!match || usedProductIds.has(match.productId)) {
+            matchStats.unmatched++;
+            continue;
+          }
+          usedProductIds.add(match.productId);
+          matchStats[match.reason]++;
+          pendingUploads.push({ productId: match.productId, img, reason: match.reason });
+        }
+      }
+
+      // Storage アップロード
+      for (const { productId, img } of pendingUploads) {
         let uploadBuffer = img.buffer;
         let contentType = img.mimeType;
         let ext = img.mimeType.split('/')[1] ?? 'png';
@@ -433,15 +457,10 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
           .update({ image_url: urlData.publicUrl })
           .eq('id', productId);
       }
+
       console.log(
-        `[import-xlsx] 画像紐付け: no=${matchStats.no} order=${matchStats.sheet_order} row=${matchStats.nearest_row} unmatched=${matchStats.unmatched}`,
+        `[import-xlsx] 画像紐付け: jan=${matchStats.jan} code=${matchStats.product_code} name=${matchStats.product_name} price=${matchStats.price} llm=${matchStats.llm_vision} unmatched=${matchStats.unmatched}`,
       );
-      const suspicion = analyzeImageMatchSuspicion(matchRecords, processedProducts);
-      if (suspicion.suspicious) {
-        console.warn(
-          `[import-xlsx] 画像紐付けAI再判定候補: reasons=${suspicion.reasons.join(',')}`,
-        );
-      }
     }
   } catch (imgErr) {
     console.warn('[import-xlsx] Image extraction failed:', imgErr);
