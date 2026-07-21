@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { sizeAssortV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
 
@@ -260,6 +260,40 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     const timer = window.setInterval(() => router.refresh(), 5000);
     return () => window.clearInterval(timer);
   }, [hasPendingAutoImages, hasPendingDriveExport, router]);
+
+  // editsはマウント時の一回だけ初期化されるため、router.refresh()でバックグラウンド生成
+  // （AIキャッチコピー等）が完了して新しいpropsが届いても自動反映されない。
+  // ユーザーがまだ手を付けていない（前回のAI値のまま）フィールドだけ、新しい値に追従させる。
+  const prevLeafletsRef = useRef(leaflets);
+  useEffect(() => {
+    const prevById = new Map(prevLeafletsRef.current.map((l) => [l.id, l]));
+    setEdits((cur) => {
+      let changed = false;
+      const next = { ...cur };
+      for (const l of leaflets) {
+        const curEdit = cur[l.id];
+        if (!curEdit) continue;
+        const prev = prevById.get(l.id);
+        const newMainCopy = l.mainCopyOverride ?? l.aiMainCopy ?? '';
+        const oldMainCopy = prev ? (prev.mainCopyOverride ?? prev.aiMainCopy ?? '') : newMainCopy;
+        const newNote = l.note ?? l.aiSubCopy ?? '';
+        const oldNote = prev ? (prev.note ?? prev.aiSubCopy ?? '') : newNote;
+        const patch: Partial<typeof curEdit> = {};
+        if (newMainCopy !== oldMainCopy && curEdit.mainCopy === oldMainCopy) {
+          patch.mainCopy = newMainCopy;
+        }
+        if (newNote !== oldNote && curEdit.note === oldNote) {
+          patch.note = newNote;
+        }
+        if (Object.keys(patch).length > 0) {
+          next[l.id] = { ...curEdit, ...patch };
+          changed = true;
+        }
+      }
+      return changed ? next : cur;
+    });
+    prevLeafletsRef.current = leaflets;
+  }, [leaflets]);
 
   const selected = leaflets.find((l) => l.id === selectedId) ?? leaflets[0];
   const edit = edits[selected.id];
