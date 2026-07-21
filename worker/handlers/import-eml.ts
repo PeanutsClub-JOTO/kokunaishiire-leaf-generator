@@ -153,6 +153,7 @@ export async function handleImportEml(job: Job, supabase: Supabase): Promise<voi
       quotation.id,
       merged.sheets,
       settings,
+      quotation.ai_background_enabled,
     );
     const uploaded = await uploadMergedProductImages(
       supabase,

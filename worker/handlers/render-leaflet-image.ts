@@ -30,6 +30,10 @@ export async function handleRenderLeafletImage(
   // ランダムな新しい背景に置き換わってしまうと、せっかく気に入った背景が
   // 消えてしまうため、既存の ai_background_url がある場合は再生成しない。
   const hasExistingBackground = Boolean(leafData.aiBackgroundUrl);
+  // AI背景生成（Gemini画像モデル）はコストが高いため既定オプトアウト。
+  // 取込画面のチェックON、またはワークベンチの「背景を生成」ボタン経由で
+  // leaflets.ai_background_enabled が true になったときだけ試みる。
+  const shouldAttemptBackground = Boolean(leafData.aiBackgroundEnabled) && !hasExistingBackground;
 
   const [freshCatchphrase, bgBuffer] = await Promise.all([
     generateCatchphrase({
@@ -40,9 +44,8 @@ export async function handleRenderLeafletImage(
       note: leafData.note,
       leadTime: leafData.leadTime,
     }),
-    hasExistingBackground
-      ? Promise.resolve(null)
-      : generateBackground({
+    shouldAttemptBackground
+      ? generateBackground({
           leafName: leafData.leafName,
           category,
           flavor,
@@ -51,7 +54,8 @@ export async function handleRenderLeafletImage(
           productNames: leafData.productNames,
           // AI背景の入力にはURLのみ渡す（拡大率・位置の調整値は不要）
           productImages: leafData.productImages.map((p) => (typeof p === 'string' ? p : p.url)),
-        }),
+        })
+      : Promise.resolve(null),
   ]);
 
   // 新規生成に成功したらDBへ保存（ワークベンチの編集欄初期値になる）。
@@ -68,8 +72,9 @@ export async function handleRenderLeafletImage(
   const aiBgDataUrl = bgBuffer
     ? `data:image/png;base64,${bgBuffer.toString('base64')}`
     : leafData.aiBackgroundUrl ?? null;
+  // 背景生成を試みていない（オプトアウト）場合は「失敗」ではないので警告は出さない。
   const renderWarning =
-    bgBuffer || hasExistingBackground
+    bgBuffer || hasExistingBackground || !shouldAttemptBackground
       ? null
       : 'AI背景生成に失敗、またはAPIキー未設定のため、通常背景で生成しました。';
 
@@ -122,6 +127,10 @@ export async function handleRenderLeafletImage(
     template_version: 'leaf-image-v1',
   };
   if (aiBackgroundUrl) update.ai_background_url = aiBackgroundUrl;
+  // ai_background_enabled は「次のレンダー1回だけ生成を試みる」ための一回限りのフラグ。
+  // 成功/失敗にかかわらずここで必ず false に戻し、以後の「情報を保存」など
+  // 通常の再レンダリングでは二度と自動でGeminiを呼ばないようにする。
+  if (shouldAttemptBackground) update.ai_background_enabled = false;
 
   const { error: updateErr } = await supabase
     .from('leaflets')

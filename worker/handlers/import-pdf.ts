@@ -185,7 +185,7 @@ export async function handleImportPdf(
     maker_name: makerName ?? rawProducts[0]?.maker_name ?? null,
     products: rawProducts,
   };
-  await processRawSheets(supabase, quotation.id, [sheet], settings);
+  await processRawSheets(supabase, quotation.id, [sheet], settings, quotation.ai_background_enabled);
 
   // メトリクス記録 + ゴールデンテスト保存（失敗しても本処理は続行）
   const promptVersion = await getActivePromptVersion(supabase);

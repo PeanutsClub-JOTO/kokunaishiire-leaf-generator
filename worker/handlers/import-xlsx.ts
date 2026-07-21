@@ -107,6 +107,7 @@ export async function processRawSheets(
   quotationId: string,
   rawSheets: RawSheetData[],
   settings: Settings,
+  aiBackgroundEnabled = false,
 ): Promise<ProcessedProductRef[]> {
   const today = new Date();
   const processedProducts: ProcessedProductRef[] = [];
@@ -288,6 +289,7 @@ export async function processRawSheets(
         is_half_ok: sizing.isHalfOk,
         shelf_life_days: shelfDays,
         status: 'draft',
+        ai_background_enabled: aiBackgroundEnabled,
       });
 
       // 注意フラグ（グループ単位）
@@ -348,7 +350,13 @@ export async function handleImportXlsx(job: Job, supabase: Supabase): Promise<vo
     );
   }
 
-  const processedProducts = await processRawSheets(supabase, quotation.id, rawSheets, settings);
+  const processedProducts = await processRawSheets(
+    supabase,
+    quotation.id,
+    rawSheets,
+    settings,
+    quotation.ai_background_enabled,
+  );
   const legacyXls = isLegacyXls(buffer);
 
   // メトリクス記録（失敗しても本処理は続行）

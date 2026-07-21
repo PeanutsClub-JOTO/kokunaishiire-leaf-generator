@@ -86,7 +86,7 @@ async function processJob(job: Database['public']['Tables']['jobs']['Row']): Pro
 
         const { data: q } = await supabase
           .from('quotations')
-          .select('source_ref')
+          .select('source_ref, ai_background_enabled')
           .eq('id', job.quotation_id)
           .single();
         if (!q?.source_ref) throw new Error('Quotation source_ref not found');
@@ -95,7 +95,7 @@ async function processJob(job: Database['public']['Tables']['jobs']['Row']): Pro
         const result = await importFromGSheet(q.source_ref);
         const settings = await loadSettings(supabase);
         // GSheet も xlsx と同じパイプライン（グルーピング・サイジング・リーフ生成）
-        await processRawSheets(supabase, job.quotation_id, result.sheets, settings);
+        await processRawSheets(supabase, job.quotation_id, result.sheets, settings, q.ai_background_enabled);
         const queued = await queueLeafletImageJobsForQuotation(supabase, job.quotation_id);
         console.log(`[worker] リーフ画像生成ジョブを ${queued} 件キューしました`);
         break;

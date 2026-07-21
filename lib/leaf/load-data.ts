@@ -173,5 +173,6 @@ export async function loadLeafletImageData(
     productImages: uniqueImages(items, parseImageOverrides(leaflet.image_overrides)),
     flagMessages,
     aiBackgroundUrl: leaflet.ai_background_url ?? null,
+    aiBackgroundEnabled: leaflet.ai_background_enabled ?? false,
   };
 }

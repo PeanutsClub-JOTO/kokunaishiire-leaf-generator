@@ -54,6 +54,8 @@ export type LeafletImageData = {
   aiBgDataUrl?: string | null;
   /** 保存済みAI背景画像のURL（再生成せず使い回す判定に使用） */
   aiBackgroundUrl?: string | null;
+  /** true かつ未生成の場合のみAI背景生成を試みる（既定false: コスト抑制のためオプトイン） */
+  aiBackgroundEnabled?: boolean;
 };
 
 export type GenerateImageResult = {

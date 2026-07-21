@@ -16,6 +16,7 @@ export default function UploadForm() {
   const [message, setMessage] = useState('');
   const [quotationId, setQuotationId] = useState<string | null>(null);
   const [fileCount, setFileCount] = useState(0);
+  const [aiBackgroundEnabled, setAiBackgroundEnabled] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const gsheetRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -77,6 +78,7 @@ export default function UploadForm() {
     setMessage(files.length > 1 ? `${files.length}件の資料をアップロード中...` : 'アップロード中...');
 
     const form = new FormData();
+    form.append('ai_background_enabled', String(aiBackgroundEnabled));
     if (files.length > 1) {
       for (const file of files) form.append('files', file);
     } else {
@@ -111,7 +113,7 @@ export default function UploadForm() {
       const res = await fetch('/api/quotations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source_ref: url }),
+        body: JSON.stringify({ source_ref: url, ai_background_enabled: aiBackgroundEnabled }),
       });
       const data = await res.json();
 
@@ -131,6 +133,24 @@ export default function UploadForm() {
 
   return (
     <div className="space-y-5">
+      {/* AI背景自動生成トグル（既定OFF: Gemini画像生成は課金が重いため） */}
+      <label className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+        <input
+          type="checkbox"
+          checked={aiBackgroundEnabled}
+          onChange={(e) => setAiBackgroundEnabled(e.target.checked)}
+          disabled={busy}
+          className="mt-0.5"
+        />
+        <span>
+          取り込み時にAI背景画像を自動生成する（商品数分のAPI利用料が発生します）
+          <br />
+          <span className="text-zinc-400">
+            未チェックの場合は通常背景で生成し、ワークベンチの「背景を生成」ボタンで個別に生成できます。
+          </span>
+        </span>
+      </label>
+
       {/* Excel / PDF アップロード */}
       <form onSubmit={submitFile} className="space-y-3">
         <label className="block text-xs font-medium text-zinc-500">

@@ -34,10 +34,12 @@ export async function POST(req: NextRequest) {
   let fileName: string | null = null;
   let fileBuffer: Buffer | null = null;
   let bundleFiles: File[] = [];
+  let aiBackgroundEnabled = false;
 
   if (contentType.includes('multipart/form-data')) {
     // ファイルアップロード
     const form = await req.formData();
+    aiBackgroundEnabled = form.get('ai_background_enabled') === 'true';
     const multiFiles = form.getAll('files').filter((value): value is File => value instanceof File);
     const singleFile = form.get('file') as File | null;
     const files = multiFiles.length > 0 ? multiFiles : singleFile ? [singleFile] : [];
@@ -83,6 +85,7 @@ export async function POST(req: NextRequest) {
     }
     sourceType = 'gsheet';
     sourceRef = body.source_ref;
+    aiBackgroundEnabled = Boolean(body.ai_background_enabled);
   }
 
   if (!sourceType || !sourceRef) {
@@ -100,6 +103,7 @@ export async function POST(req: NextRequest) {
       source_type: sourceType,
       source_ref: sourceRef,
       client_name: 'ピーナッツクラブ',
+      ai_background_enabled: aiBackgroundEnabled,
     })
     .select()
     .single();

@@ -25,6 +25,7 @@ export type Database = {
           client_name: string | null;
           quoted_at: string | null;
           expires_at: string | null;
+          ai_background_enabled: boolean;
           created_at: string;
         };
         Insert: {
@@ -34,6 +35,7 @@ export type Database = {
           client_name?: string | null;
           quoted_at?: string | null;
           expires_at?: string | null;
+          ai_background_enabled?: boolean;
           created_at?: string;
         };
         Update: {
@@ -42,6 +44,7 @@ export type Database = {
           client_name?: string | null;
           quoted_at?: string | null;
           expires_at?: string | null;
+          ai_background_enabled?: boolean;
           created_at?: string;
         };
         Relationships: [];
@@ -234,6 +237,7 @@ export type Database = {
           main_copy_override: string | null;
           ai_main_copy: string | null;
           ai_sub_copy: string | null;
+          ai_background_enabled: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -272,6 +276,7 @@ export type Database = {
           main_copy_override?: string | null;
           ai_main_copy?: string | null;
           ai_sub_copy?: string | null;
+          ai_background_enabled?: boolean;
           created_at?: string;
           updated_at?: string;
         };

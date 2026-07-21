@@ -411,6 +411,31 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     }
   }
 
+  // AI背景画像を（再）生成。Gemini画像生成は課金が発生するため、
+  // 自動生成はせずこのボタンを押したときだけ実行する。
+  async function handleGenerateBackground() {
+    setSaving(true);
+    setMessage('');
+    try {
+      const res = await fetch(`/api/leaflets/${selected.id}/background`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setMessage(data.error ?? '背景生成の登録に失敗しました');
+        return;
+      }
+      setMessage('AI背景を生成しています…');
+      if (data.job_id) {
+        const completed = await waitForJob(data.job_id, 'AI背景を生成');
+        setMessage(completed ? 'AI背景を生成しました。' : '背景生成を受け付けました。まだ処理中なので、少し後に画面を更新してください。');
+      }
+      router.refresh();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : '背景生成に失敗しました');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   // アソート作成＋そのまま画像生成（選択商品から新リーフを作る）
   async function handleCreateAssort() {
     setSaving(true);
@@ -569,6 +594,18 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
               AI生成背景を使った編集プレビューを表示中です。「情報を保存」で生成画像を更新します。
             </div>
           )}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              onClick={handleGenerateBackground}
+              disabled={saving}
+              className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+            >
+              {saving ? '処理中…' : selected.aiBackgroundUrl ? '背景を再生成' : '背景を生成'}
+            </button>
+            <span className="text-[10px] text-zinc-400">
+              Gemini画像生成のAPI利用料が発生します（1回あたり数円）
+            </span>
+          </div>
           {!sizing.ok && (
             <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
               この構成は企画対象外です（{sizing.reason === 'unit_over' ? '卸価格÷入数が1,000円超' : sizing.reason === 'cost_over' ? '1ロットが33,000円超' : sizing.reason}）。比率を調整してください。
