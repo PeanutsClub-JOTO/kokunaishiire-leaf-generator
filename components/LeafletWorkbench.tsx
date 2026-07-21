@@ -1050,14 +1050,11 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             label={isAssort ? '仕入原価（構成1組）' : '仕入単価（元単価）'}
             value={`${fmt(sizing.setCost)}円`}
           />
-          <EditableNumberRow
+          {/* 単価は「卸価格 ÷ 入数」で決まる値のため手動編集不可。
+              卸価格または入数を編集すると自動的に再計算される。 */}
+          <Row
             label="単価"
-            calcValue={calcSizingRaw.unitPrice}
-            override={calcOv?.unitPrice ?? ''}
-            // 単価は卸価格÷入数から算出される値であって、単価側からの手動編集で
-            // 卸価格を追従させることはしない（卸価格→単価の一方向のみ）。
-            onChange={(v) => patchCalcOverride({ unitPrice: v })}
-            unit="円"
+            value={`${fmt(sizing.unitPrice)}円`}
             warn={sizing.unitPrice > sizingSettings.unitPriceCap}
           />
           <EditableNumberRow
