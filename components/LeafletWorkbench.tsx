@@ -926,17 +926,15 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
               const raw = itemEdits[it.productId] ?? { cost: '', minLotQty: '', retailPrice: '', productName: '', janCode: '' };
               return (
                 <div key={it.productId} className="rounded border border-zinc-200 bg-zinc-50 p-2 space-y-1.5">
-                  {editedItems.length > 1 && (
-                    <div className="text-[10px] font-semibold text-zinc-500">構成 {idx + 1}</div>
+                  {editedItems.length > 1 ? (
+                    <div className="text-[10px] font-semibold text-zinc-500 truncate">
+                      構成 {idx + 1}: {raw.productName || it.productName}
+                    </div>
+                  ) : (
+                    <div className="text-[10px] text-zinc-400">
+                      品名は上の「掲載品名」で編集します
+                    </div>
                   )}
-                  <div>
-                    <label className="block text-[10px] text-zinc-500 mb-0.5">品名</label>
-                    <input
-                      value={raw.productName}
-                      onChange={(e) => patchItemEdit(it.productId, { productName: e.target.value })}
-                      className="w-full rounded border border-zinc-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                    />
-                  </div>
                   <div>
                     <label className="block text-[10px] text-zinc-500 mb-0.5">JAN</label>
                     <input
