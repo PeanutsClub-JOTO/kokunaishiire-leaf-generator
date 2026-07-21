@@ -2,6 +2,13 @@
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
+/**
+ * AI背景自動生成トグルを表示するかどうか。
+ * false の間は取込時のAI背景生成UIを隠す（内部フラグは常に false 送信）。
+ * true に戻せばチェックボックス＋説明文が復活する。
+ */
+const SHOW_AI_BACKGROUND_UPLOAD_TOGGLE = false;
+
 type JobStatus = 'idle' | 'uploading' | 'queued' | 'running' | 'done' | 'error';
 type JobResponse = {
   job?: {
@@ -134,22 +141,24 @@ export default function UploadForm() {
   return (
     <div className="space-y-5">
       {/* AI背景自動生成トグル（既定OFF: Gemini画像生成は課金が重いため） */}
-      <label className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-        <input
-          type="checkbox"
-          checked={aiBackgroundEnabled}
-          onChange={(e) => setAiBackgroundEnabled(e.target.checked)}
-          disabled={busy}
-          className="mt-0.5"
-        />
-        <span>
-          取り込み時にAI背景画像を自動生成する（商品数分のAPI利用料が発生します）
-          <br />
-          <span className="text-zinc-400">
-            未チェックの場合は通常背景で生成し、ワークベンチの「背景を生成」ボタンで個別に生成できます。
+      {SHOW_AI_BACKGROUND_UPLOAD_TOGGLE && (
+        <label className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+          <input
+            type="checkbox"
+            checked={aiBackgroundEnabled}
+            onChange={(e) => setAiBackgroundEnabled(e.target.checked)}
+            disabled={busy}
+            className="mt-0.5"
+          />
+          <span>
+            取り込み時にAI背景画像を自動生成する（商品数分のAPI利用料が発生します）
+            <br />
+            <span className="text-zinc-400">
+              未チェックの場合は通常背景で生成し、ワークベンチの「背景を生成」ボタンで個別に生成できます。
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      )}
 
       {/* Excel / PDF アップロード */}
       <form onSubmit={submitFile} className="space-y-3">
