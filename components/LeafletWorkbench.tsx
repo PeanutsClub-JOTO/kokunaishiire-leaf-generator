@@ -1054,7 +1054,16 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             label="単価"
             calcValue={calcSizingRaw.unitPrice}
             override={calcOv?.unitPrice ?? ''}
-            onChange={(v) => patchCalcOverride({ unitPrice: v })}
+            onChange={(v) => {
+              // 単価×入数=卸価格 の関係を保つため、単価入力時に卸価格を自動追従させる
+              const patch: Partial<CalcOverride> = { unitPrice: v };
+              const n = Number(v);
+              if (v !== '' && Number.isFinite(n) && n >= 0) {
+                const leafQty = Number(calcOv?.leafQty || '') || calcSizingRaw.leafQty;
+                if (leafQty > 0) patch.wholesale = String(Math.round(n * leafQty));
+              }
+              patchCalcOverride(patch);
+            }}
             unit="円"
             warn={sizing.unitPrice > sizingSettings.unitPriceCap}
           />
@@ -1069,7 +1078,16 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             label="卸価格"
             calcValue={calcSizingRaw.wholesale}
             override={calcOv?.wholesale ?? ''}
-            onChange={(v) => patchCalcOverride({ wholesale: v })}
+            onChange={(v) => {
+              // 卸価格÷入数=単価 の関係を保つため、卸価格入力時に単価を自動追従させる
+              const patch: Partial<CalcOverride> = { wholesale: v };
+              const n = Number(v);
+              if (v !== '' && Number.isFinite(n) && n >= 0) {
+                const leafQty = Number(calcOv?.leafQty || '') || calcSizingRaw.leafQty;
+                if (leafQty > 0) patch.unitPrice = String(Math.round(n / leafQty));
+              }
+              patchCalcOverride(patch);
+            }}
             unit="円"
           />
           <div className="flex justify-between items-center">
