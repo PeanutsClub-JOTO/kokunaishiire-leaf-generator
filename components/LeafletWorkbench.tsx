@@ -14,7 +14,14 @@ export type WorkbenchItem = {
   janCode: string | null;
   cost: number;
   minLotQty: number;
+  retailPrice: number | null;
 };
+
+/**
+ * AI背景生成のUIを一旦隠すためのフラグ。
+ * true にすると「背景を生成」ボタン / AI背景バナー / 「AI背景は通常背景で代替」ラベルが復活する。
+ */
+const SHOW_AI_BACKGROUND_UI = false;
 
 export type WorkbenchLeaflet = {
   id: string;
@@ -50,6 +57,8 @@ export type WorkbenchLeaflet = {
   aiSubCopy: string | null;
   /** 商品コード */
   productCode: string | null;
+  /** PJ番号（社員番号） */
+  pjNo: string | null;
   /** { [productId]: { scale, x, y } } 商品画像の拡大率・位置調整 */
   imageOverrides: Record<string, { scale?: number; x?: number; y?: number }> | null;
   items: WorkbenchItem[];
@@ -206,7 +215,7 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
     .replaceAll('{{LEAD_TIME}}', esc(leaf.leadTime || '受注後約1週間'))
     .replaceAll('{{HALF_LABEL}}', sizing.isHalfOk ? '可' : '不可')
     .replaceAll('{{HALF_NG_CLASS}}', sizing.isHalfOk ? '' : 'ng')
-    .replaceAll('{{PJ_NO}}', '');
+    .replaceAll('{{PJ_NO}}', esc(leaf.pjNo?.trim() || ''));
 }
 
 // ─── コンポーネント ────────────────────────────────────────────────────────────
@@ -216,19 +225,50 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(leaflets[0]?.id ?? '');
   // キャッチ/セールスコピーは AI生成文を初期値として編集欄に出す（自由に修正→保存できる）
-  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string }>>(() =>
+  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string; pjNo: string }>>(() =>
     Object.fromEntries(leaflets.map((l) => [l.id, {
       leafName: l.leafName,
       leadTime: l.leadTime,
       note: l.note ?? l.aiSubCopy ?? '',
       mainCopy: l.mainCopyOverride ?? l.aiMainCopy ?? '',
       productCode: l.productCode ?? '',
+      pjNo: l.pjNo ?? '',
     }])),
   );
   // アソート選択: ベースリーフID → { productId: ratio }（ベース商品を必ず含む）
   const [assortSel, setAssortSel] = useState<Record<string, Record<string, number>>>(() =>
     Object.fromEntries(leaflets.map((l) => [l.id, Object.fromEntries(l.items.map((it) => [it.productId, it.ratio]))])),
   );
+
+  // 商品情報の手動編集: productId → { cost, minLotQty, retailPrice, productName, janCode }
+  // OCR取込結果を上書きするための入力欄。cost変更で単価/卸価格が自動再計算される。
+  type ItemEdit = { cost: string; minLotQty: string; retailPrice: string; productName: string; janCode: string };
+  const initialItemEdits = useMemo<Record<string, ItemEdit>>(() => {
+    const map: Record<string, ItemEdit> = {};
+    for (const l of leaflets) {
+      for (const it of l.items) {
+        if (map[it.productId]) continue;
+        map[it.productId] = {
+          cost: String(it.cost ?? ''),
+          minLotQty: String(it.minLotQty ?? ''),
+          retailPrice: it.retailPrice != null ? String(it.retailPrice) : '',
+          productName: it.productName ?? '',
+          janCode: it.janCode ?? '',
+        };
+      }
+    }
+    return map;
+  }, [leaflets]);
+  const [itemEdits, setItemEdits] = useState<Record<string, ItemEdit>>(initialItemEdits);
+  function patchItemEdit(productId: string, patch: Partial<ItemEdit>) {
+    setItemEdits((prev) => ({ ...prev, [productId]: { ...prev[productId], ...patch } }));
+  }
+  function itemNumber(productId: string, field: 'cost' | 'minLotQty' | 'retailPrice', fallback: number | null): number | null {
+    const raw = itemEdits[productId]?.[field];
+    if (raw === undefined || raw === '') return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  }
   // 画像調整: リーフID → { productId: { scale, x, y } }
   const [imgOvMap, setImgOvMap] = useState<Record<string, Record<string, ImgOv>>>(() =>
     Object.fromEntries(
@@ -319,15 +359,29 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   }, [leaflets, selected]);
 
   // 現在の選択を反映したアソート構成アイテム
+  // itemEdits の cost / minLotQty / retailPrice / productName / janCode を上書き適用する
+  // ことで、cost を編集すると calcSizing が useMemo 依存 → 自動で単価・卸価格が再計算される。
   const editedItems = useMemo<WorkbenchItem[]>(
-    () => Object.entries(sel).map(([pid, ratio]) => ({ ...(productById.get(pid) as WorkbenchItem), ratio })),
-    [sel, productById],
+    () => Object.entries(sel).map(([pid, ratio]) => {
+      const base = productById.get(pid) as WorkbenchItem;
+      return {
+        ...base,
+        ratio,
+        cost: itemNumber(pid, 'cost', base.cost) ?? base.cost,
+        minLotQty: itemNumber(pid, 'minLotQty', base.minLotQty) ?? base.minLotQty,
+        retailPrice: itemNumber(pid, 'retailPrice', base.retailPrice),
+        productName: itemEdits[pid]?.productName?.trim() || base.productName,
+        janCode: itemEdits[pid]?.janCode?.trim() || base.janCode,
+      };
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sel, productById, itemEdits],
   );
   const isAssort = editedItems.length > 1;
   const isTemporaryAssort = isAssort && selected.items.length === 1;
   const sizing = useMemo(() => calcSizing(editedItems, sizingSettings), [editedItems, sizingSettings]);
   const leafForPreview = useMemo<WorkbenchLeaflet>(
-    () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, productCode: edit.productCode, isSingle: !isAssort }),
+    () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, productCode: edit.productCode, pjNo: edit.pjNo, isSingle: !isAssort }),
     [selected, edit, isAssort],
   );
   const imgOv = useMemo<Record<string, ImgOv>>(() => imgOvMap[selected.id] ?? {}, [imgOvMap, selected.id]);
@@ -351,7 +405,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     return out;
   }
 
-  function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string }>) {
+  function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string; pjNo: string }>) {
     setEdits((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], ...patch } }));
   }
   function setImgOv(productId: string, patch: Partial<ImgOv>) {
@@ -398,11 +452,41 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     return false;
   }
 
+  // 商品情報（cost/minLot/上代/品名/JAN）の変更を各商品に永続化する
+  async function persistItemEdits(): Promise<void> {
+    await Promise.all(
+      editedItems.map(async (it) => {
+        const raw = itemEdits[it.productId];
+        if (!raw) return;
+        const base = productById.get(it.productId);
+        if (!base) return;
+        const body: Record<string, unknown> = {};
+        const nextCost = itemNumber(it.productId, 'cost', base.cost);
+        if (nextCost != null && nextCost !== base.cost) body.cost = nextCost;
+        const nextMin = itemNumber(it.productId, 'minLotQty', base.minLotQty);
+        if (nextMin != null && nextMin !== base.minLotQty) body.min_lot_qty = nextMin;
+        const nextRetail = itemNumber(it.productId, 'retailPrice', base.retailPrice);
+        if (nextRetail !== base.retailPrice) body.retail_price = nextRetail;
+        const nextName = raw.productName.trim();
+        if (nextName && nextName !== base.productName) body.product_name = nextName;
+        const nextJan = raw.janCode.trim();
+        if (nextJan !== (base.janCode ?? '')) body.jan_code = nextJan || null;
+        if (Object.keys(body).length === 0) return;
+        await fetch(`/api/products/${it.productId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      }),
+    );
+  }
+
   // 単品リーフの情報を保存 → リーフ画像を再生成
   async function handleSave() {
     setSaving(true);
     setMessage('');
     try {
+      await persistItemEdits();
       const patchRes = await fetch(`/api/leaflets/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -411,6 +495,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           lead_time: edit.leadTime,
           note: edit.note,
           product_code: edit.productCode.trim() || null,
+          pj_no: edit.pjNo.trim() || null,
           main_copy_override: edit.mainCopy.trim() || null,
           image_overrides: buildOverridesPayload(),
         }),
@@ -529,6 +614,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
 
       setMessage(selected.status === 'final' ? 'Drive転送中…' : '確定してDriveへ転送中…');
 
+      await persistItemEdits();
       const res = await fetch(`/api/leaflets/${selected.id}/finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -537,6 +623,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           lead_time: edit.leadTime,
           note: edit.note,
           product_code: edit.productCode.trim() || null,
+          pj_no: edit.pjNo.trim() || null,
           main_copy_override: edit.mainCopy.trim() || null,
           assort_followup_status: followup,
         }),
@@ -593,7 +680,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
                 </span>
                 <span>単価{fmt(l.unitPrice)}円</span>
               </div>
-              {l.renderError && (
+              {SHOW_AI_BACKGROUND_UI && l.renderError && (
                 <div className="mt-1 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
                   AI背景は通常背景で代替
                 </div>
@@ -623,23 +710,25 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
               style={{ width: 1540, height: 970, border: 0, transform: 'scale(0.5)', transformOrigin: 'top left' }}
             />
           </div>
-          {selected.aiBackgroundUrl && (
+          {SHOW_AI_BACKGROUND_UI && selected.aiBackgroundUrl && (
             <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
               AI生成背景を使った編集プレビューを表示中です。「情報を保存」で生成画像を更新します。
             </div>
           )}
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              onClick={handleGenerateBackground}
-              disabled={saving}
-              className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-            >
-              {saving ? '処理中…' : selected.aiBackgroundUrl ? '背景を再生成' : '背景を生成'}
-            </button>
-            <span className="text-[10px] text-zinc-400">
-              Gemini画像生成のAPI利用料が発生します（1回あたり数円）
-            </span>
-          </div>
+          {SHOW_AI_BACKGROUND_UI && (
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                onClick={handleGenerateBackground}
+                disabled={saving}
+                className="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+              >
+                {saving ? '処理中…' : selected.aiBackgroundUrl ? '背景を再生成' : '背景を生成'}
+              </button>
+              <span className="text-[10px] text-zinc-400">
+                Gemini画像生成のAPI利用料が発生します（1回あたり数円）
+              </span>
+            </div>
+          )}
           {!sizing.ok && (
             <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">
               この構成は企画対象外です（{sizing.reason === 'unit_over' ? '卸価格÷入数が1,000円超' : sizing.reason === 'cost_over' ? '1ロットが33,000円超' : sizing.reason}）。比率を調整してください。
@@ -655,14 +744,25 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
 
       {/* 右: 編集パネル */}
       <aside className="w-80 shrink-0 overflow-y-auto border-l border-zinc-200 bg-white p-4 space-y-4">
-        <div>
-          <label className="block text-xs font-medium text-zinc-500 mb-1">商品コード</label>
-          <input
-            value={edit.productCode}
-            onChange={(e) => patchEdit({ productCode: e.target.value })}
-            placeholder="例: AB-1234（末尾$=直送）"
-            className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
-          />
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs font-medium text-zinc-500 mb-1">商品コード</label>
+            <input
+              value={edit.productCode}
+              onChange={(e) => patchEdit({ productCode: e.target.value })}
+              placeholder="例: AB-1234（末尾$=直送）"
+              className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-500 mb-1">PJ番号</label>
+            <input
+              value={edit.pjNo}
+              onChange={(e) => patchEdit({ pjNo: e.target.value })}
+              placeholder="例: 12345"
+              className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            />
+          </div>
         </div>
         <div>
           <label className="block text-xs font-medium text-zinc-500 mb-1">掲載品名</label>
@@ -812,6 +912,74 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             <p className="mt-2 text-[10px] text-zinc-400">「情報を保存」で調整内容を反映した画像を再生成します。</p>
           </div>
         )}
+
+        {/* 商品情報の手動編集（OCR取込結果の上書き） */}
+        <div className="rounded-lg border border-zinc-200 bg-white p-3">
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-semibold text-zinc-600">
+              商品情報（OCR取込値を編集）
+            </label>
+            <span className="text-[10px] text-zinc-400">単価変更で自動再計算</span>
+          </div>
+          <div className="space-y-3">
+            {editedItems.map((it, idx) => {
+              const raw = itemEdits[it.productId] ?? { cost: '', minLotQty: '', retailPrice: '', productName: '', janCode: '' };
+              return (
+                <div key={it.productId} className="rounded border border-zinc-200 bg-zinc-50 p-2 space-y-1.5">
+                  {editedItems.length > 1 && (
+                    <div className="text-[10px] font-semibold text-zinc-500">構成 {idx + 1}</div>
+                  )}
+                  <div>
+                    <label className="block text-[10px] text-zinc-500 mb-0.5">品名</label>
+                    <input
+                      value={raw.productName}
+                      onChange={(e) => patchItemEdit(it.productId, { productName: e.target.value })}
+                      className="w-full rounded border border-zinc-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-zinc-500 mb-0.5">JAN</label>
+                    <input
+                      value={raw.janCode}
+                      onChange={(e) => patchItemEdit(it.productId, { janCode: e.target.value })}
+                      inputMode="numeric"
+                      className="w-full rounded border border-zinc-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <div>
+                      <label className="block text-[10px] text-zinc-500 mb-0.5">仕入単価</label>
+                      <input
+                        value={raw.cost}
+                        onChange={(e) => patchItemEdit(it.productId, { cost: e.target.value })}
+                        inputMode="decimal"
+                        className="w-full rounded border border-zinc-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-500 mb-0.5">最小ロット</label>
+                      <input
+                        value={raw.minLotQty}
+                        onChange={(e) => patchItemEdit(it.productId, { minLotQty: e.target.value })}
+                        inputMode="numeric"
+                        className="w-full rounded border border-zinc-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-zinc-500 mb-0.5">上代</label>
+                      <input
+                        value={raw.retailPrice}
+                        onChange={(e) => patchItemEdit(it.productId, { retailPrice: e.target.value })}
+                        inputMode="decimal"
+                        className="w-full rounded border border-zinc-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
         {/* 計算結果（ライブ） */}
         <div className="rounded-lg bg-zinc-50 border border-zinc-200 p-3 text-sm space-y-1">

@@ -38,7 +38,7 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
         .from('assort_groups')
         .select(`
           id, is_single, group_key,
-          assort_items(product_id, ratio, products(id, no, product_name, image_url, piece_size, jan_code, shelf_life_days, cost, min_lot_qty)),
+          assort_items(product_id, ratio, products(id, no, product_name, image_url, piece_size, jan_code, shelf_life_days, cost, min_lot_qty, retail_price)),
           leaflets(*)
         `)
         .in('sheet_id', sheetIds)
@@ -67,10 +67,11 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
   for (const g of groups ?? []) {
     const leaf = Array.isArray(g.leaflets) ? g.leaflets[0] : g.leaflets;
     if (!leaf) continue;
+    type ProductRef = { id: string; no: number | null; product_name: string | null; image_url: string | null; piece_size: string | null; jan_code: string | null; shelf_life_days: number | null; cost: number | null; min_lot_qty: number | null; retail_price: number | null };
     const items = (Array.isArray(g.assort_items) ? g.assort_items : [g.assort_items]).filter(Boolean) as Array<{
       product_id: string;
       ratio: number;
-      products: { id: string; no: number | null; product_name: string | null; image_url: string | null; piece_size: string | null; jan_code: string | null; shelf_life_days: number | null; cost: number | null; min_lot_qty: number | null } | { id: string; no: number | null; product_name: string | null; image_url: string | null; piece_size: string | null; jan_code: string | null; shelf_life_days: number | null; cost: number | null; min_lot_qty: number | null }[] | null;
+      products: ProductRef | ProductRef[] | null;
     }>;
     leaflets.push({
       id: leaf.id,
@@ -103,6 +104,7 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
       aiMainCopy: leaf.ai_main_copy ?? null,
       aiSubCopy: leaf.ai_sub_copy ?? null,
       productCode: leaf.product_code ?? null,
+      pjNo: leaf.pj_no ?? null,
       items: items.map((it) => {
         const p = Array.isArray(it.products) ? it.products[0] : it.products;
         return {
@@ -115,6 +117,7 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
           janCode: p?.jan_code ?? null,
           cost: p?.cost ?? 0,
           minLotQty: p?.min_lot_qty ?? 1,
+          retailPrice: p?.retail_price ?? null,
         };
       }),
     });
