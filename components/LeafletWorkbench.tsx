@@ -19,10 +19,10 @@ export type WorkbenchItem = {
 };
 
 /**
- * AI背景生成のUIを一旦隠すためのフラグ。
- * true にすると「背景を生成」ボタン / AI背景バナー / 「AI背景は通常背景で代替」ラベルが復活する。
+ * ワークベンチでは、編集者が任意のタイミングでAI背景を生成・再生成できる。
+ * 取り込み画面側の自動生成UIとは別扱いにする。
  */
-const SHOW_AI_BACKGROUND_UI = false;
+const SHOW_AI_BACKGROUND_UI = true;
 
 export type WorkbenchLeaflet = {
   id: string;
