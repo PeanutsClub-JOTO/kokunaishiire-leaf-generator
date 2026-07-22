@@ -9,12 +9,13 @@
  *      例: 最小ロット 5ケースなら caseQty×5 個で1ロット。
  *  - 数量: 1ロット原価が costCap(33,000) を超えたら企画対象外。
  *      超えない場合は、仕入原価合計が33,000円以内で最大のロット数を掲載する。
- *  - 掲載卸売価格 = (仕入原価合計 + salesAdd) × profitCoef。
+ *  - 掲載卸売価格 = 仕入原価合計 ÷ profitCoef + salesAdd。
  *  - 掲載単価 = 掲載卸売価格 ÷ 掲載入数。これが unitPriceCap 以下なら企画化。
  */
+import { calculateWholesalePrice, DEFAULT_WHOLESALE_DIVISOR, wholesaleDivisorFromSetting } from './wholesale';
 
 export type SizingV2Settings = {
-  profitCoef: number;   // 卸価格係数（1.25）
+  profitCoef: number;   // 卸価格の除数（0.75）。DBキー名は既存互換で profit_coef のまま
   salesAdd: number;     // 営業上乗せ額（3000）
   unitPriceCap: number; // 掲載単価の上限（1000）
   costCap: number;      // 仕入原価合計の上限（33000）
@@ -22,7 +23,7 @@ export type SizingV2Settings = {
 };
 
 export const DEFAULT_V2_SETTINGS: SizingV2Settings = {
-  profitCoef: 1.25,
+  profitCoef: DEFAULT_WHOLESALE_DIVISOR,
   salesAdd: 3000,
   unitPriceCap: 1000,
   costCap: 33000,
@@ -41,7 +42,7 @@ export type SizingV2Result = {
   unitPrice: number;       // 掲載単価 = wholesale ÷ leafQty
   leafQty: number;         // 掲載入数 = 総箱数
   costTotal: number;       // 仕入原価合計 = 原価 × 掲載入数
-  wholesale: number;       // 掲載卸売価格 = (costTotal + salesAdd) × profitCoef
+  wholesale: number;       // 掲載卸売価格 = costTotal ÷ profitCoef + salesAdd
 
   minLotPrice: number;     // 最小ロット原価（参考）
   maxLots: number;         // ロット数（参考）
@@ -95,7 +96,7 @@ function sizeSets(
 
   const leafQty = lotQty * maxLots;
   const costTotal = lotPrice * maxLots;
-  const wholesale = (costTotal + s.salesAdd) * s.profitCoef;
+  const wholesale = calculateWholesalePrice(costTotal, s);
   const unitPrice = wholesale / leafQty;
   const isHalfOk = lotPrice <= s.halfBase;
   const ok = unitPrice <= s.unitPriceCap;
@@ -178,5 +179,6 @@ export function canAssort(
   costs: number[],
   s: SizingV2Settings = DEFAULT_V2_SETTINGS,
 ): boolean {
-  return costs.length > 0 && costs.every((c) => c > 0 && c * s.profitCoef < s.unitPriceCap);
+  const divisor = wholesaleDivisorFromSetting(s.profitCoef);
+  return costs.length > 0 && costs.every((c) => c > 0 && c / divisor < s.unitPriceCap);
 }

@@ -801,8 +801,8 @@ export default function MockPage({ templateHtml }: { templateHtml: string }) {
                       卸価格の計算
                     </div>
                     {row(`${maxLots} × ¥${fmt(selected.lotCost)}`, `¥${fmt(selected.costTotal)}`)}
+                    {row('÷ 粗利率', '÷ 0.75')}
                     {row('+ 諸経費', '+ ¥3,000')}
-                    {row('× 掛率', '× 1.25')}
                     {row('＝ 卸価格', `¥${fmt(selected.wholesalePrice)}`)}
                     <div style={{ borderBottom: '1px solid #1e293b', marginTop: 4, paddingTop: 4, fontSize: 10, color: '#475569' }}>
                       掲載単価の計算

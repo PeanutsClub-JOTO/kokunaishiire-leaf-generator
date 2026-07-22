@@ -4,9 +4,10 @@
  * すべて純粋関数。副作用・DB参照なし。
  * 定数は必ず Settings として外部から注入し、ハードコードしない。
  */
+import { calculateWholesalePrice, DEFAULT_WHOLESALE_DIVISOR } from './wholesale';
 
 export type Settings = {
-  profitCoef: number;     // 卸価格係数 (1.25)
+  profitCoef: number;     // 卸価格の除数 (0.75)。DBキー名は既存互換で profit_coef のまま
   salesAdd: number;       // 営業上乗せ額 (3000)
   unitPriceCap: number;   // 単価通過ゲート上限 (1000)
   costCap: number;        // 仕入原価上限 (33000)
@@ -15,7 +16,7 @@ export type Settings = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
-  profitCoef: 1.25,
+  profitCoef: DEFAULT_WHOLESALE_DIVISOR,
   salesAdd: 3000,
   unitPriceCap: 1000,
   costCap: 33000,
@@ -64,7 +65,7 @@ export function sizeByMaxLot(
   const maxLots = Math.floor(s.costCap / lotPrice);
   const leafQty = maxLots * lotQty;
   const costTotal = lotPrice * maxLots;
-  const wholesale = (costTotal + s.salesAdd) * s.profitCoef;
+  const wholesale = calculateWholesalePrice(costTotal, s);
   const unitPrice = wholesale / leafQty;
   // ハーフ可否 (仕様書§3 / devlog): 1ロット価格(=lotPrice) が halfBase(16,500) 以下なら
   // 半口（ハーフ）でも成立する。単品=cost×min_lot_qty、アソート=合算1ロット価格。

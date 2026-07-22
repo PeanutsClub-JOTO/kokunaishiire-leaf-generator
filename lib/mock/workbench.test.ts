@@ -28,8 +28,8 @@ describe('calcMockSingle', () => {
     expect(r.lotSize).toBe(12);
     expect(r.lotCost).toBe(4800);
     expect(r.leafQty).toBe(72);
-    expect(r.wholesalePrice).toBe(39750);
-    expect(Math.round(r.unitPrice * 10) / 10).toBe(552.1);
+    expect(r.wholesalePrice).toBe(41400);
+    expect(Math.round(r.unitPrice * 10) / 10).toBe(575.0);
     expect(r.isEligible).toBe(true);
   });
 
@@ -37,7 +37,7 @@ describe('calcMockSingle', () => {
     const r = calcMockSingle(1200, 12);
     expect(r.isEligible).toBe(false);
     expect(r.leafQty).toBe(24);
-    expect(r.wholesalePrice).toBe(39750);
+    expect(r.wholesalePrice).toBe(41400);
   });
 });
 

@@ -233,7 +233,7 @@ export async function processRawSheets(
         group.product_ids.map((pid) => ({ group_id: assortGroup.id, product_id: pid, ratio: 1 })),
       );
 
-      // サイジング計算（新方式: 単価=原価, 卸価格=原価合計, 1ロット=最小ロット数量）
+      // サイジング計算（単価=原価, 卸価格=原価合計÷0.75+上乗せ, 1ロット=最小ロット数量）
       const v2Settings: SizingV2Settings = {
         profitCoef: settings.profitCoef,
         salesAdd: settings.salesAdd,

@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 
 -- §4 デフォルト定数を挿入
 INSERT INTO app_settings (key, value) VALUES
-  ('profit_coef',      1.25),   -- 卸価格係数（25%利益）
+  ('profit_coef',      0.75),   -- 卸売価格の除数（卸売価格 = 原価合計 ÷ 0.75 + 営業上乗せ額）
   ('sales_add',        3000),   -- 営業上乗せ額
   ('unit_price_cap',   1000),   -- 単価通過ゲート上限
   ('cost_cap',         33000),  -- 仕入原価上限（数量サイジングの天井）

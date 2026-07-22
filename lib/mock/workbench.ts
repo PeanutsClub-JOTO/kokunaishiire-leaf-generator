@@ -1,3 +1,5 @@
+import { calculateWholesalePrice } from '@/lib/calc/wholesale';
+
 export type MockProduct = {
   id: string;
   no: number | null;
@@ -47,11 +49,12 @@ export function calcMockSingle(cost: number, minLotQty: number): Pick<
   MockProduct,
   'lotSize' | 'lotCost' | 'leafQty' | 'costTotal' | 'wholesalePrice' | 'unitPrice' | 'isEligible'
 > {
+  const settings = { profitCoef: 0.75, salesAdd: 3000 };
   const lotSize = Math.max(minLotQty, 0);
   const lotCost = lotSize * cost;
 
   if (lotCost > 33000 || lotCost === 0) {
-    const wholesalePrice = lotCost > 0 ? (lotCost + 3000) * 1.25 : 0;
+    const wholesalePrice = lotCost > 0 ? calculateWholesalePrice(lotCost, settings) : 0;
     const unitPrice = lotSize > 0 ? wholesalePrice / lotSize : 0;
     return { lotSize, lotCost, leafQty: lotSize, costTotal: lotCost, wholesalePrice, unitPrice, isEligible: false };
   }
@@ -59,7 +62,7 @@ export function calcMockSingle(cost: number, minLotQty: number): Pick<
   const maxLots = Math.floor(33000 / lotCost);
   const leafQty = maxLots * lotSize;
   const costTotal = maxLots * lotCost;
-  const wholesalePrice = (costTotal + 3000) * 1.25;
+  const wholesalePrice = calculateWholesalePrice(costTotal, settings);
   const unitPrice = leafQty > 0 ? wholesalePrice / leafQty : 0;
 
   return { lotSize, lotCost, leafQty, costTotal, wholesalePrice, unitPrice, isEligible: unitPrice <= 1000 };

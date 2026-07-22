@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/client';
-import { sizeAssortV2, type AssortTypeV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
+import { DEFAULT_V2_SETTINGS, sizeAssortV2, type AssortTypeV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
 
 export async function POST(
   req: NextRequest,
@@ -26,13 +26,7 @@ export async function POST(
     .from('app_settings')
     .select('key, value');
 
-  const s: SizingV2Settings = {
-    profitCoef: 1.25,
-    salesAdd: 3000,
-    unitPriceCap: 1000,
-    costCap: 33000,
-    halfBase: 16500,
-  };
+  const s: SizingV2Settings = { ...DEFAULT_V2_SETTINGS };
   if (settingsData) {
     for (const row of settingsData) {
       switch (row.key) {

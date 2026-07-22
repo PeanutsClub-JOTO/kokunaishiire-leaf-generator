@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { sizeAssortV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
+import { DEFAULT_V2_SETTINGS, sizeAssortV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
+import { wholesaleDivisorFromSetting } from '@/lib/calc/wholesale';
 
 // ─── 型 ───────────────────────────────────────────────────────────────────────
 export type WorkbenchItem = {
@@ -80,7 +81,7 @@ type Props = {
   settings: SizingV2Settings;
 };
 
-const DEFAULT_SETTINGS: SizingV2Settings = { profitCoef: 1.25, salesAdd: 3000, unitPriceCap: 1000, costCap: 33000, halfBase: 16500 };
+const DEFAULT_SETTINGS: SizingV2Settings = DEFAULT_V2_SETTINGS;
 
 type Sizing = { ok: boolean; reason?: string; setCost: number; unitPrice: number; leafQty: number; costTotal: number; wholesale: number; isHalfOk: boolean; minLotPrice: number; maxLots: number };
 
@@ -877,7 +878,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             <div className="space-y-1.5">
               {compatItems.map((it) => {
                 const checked = it.productId in sel;
-                const wouldExceed = !checked && it.cost * sizingSettings.profitCoef >= sizingSettings.unitPriceCap;
+                const wholesaleDivisor = wholesaleDivisorFromSetting(sizingSettings.profitCoef);
+                const wouldExceed = !checked && it.cost / wholesaleDivisor >= sizingSettings.unitPriceCap;
                 return (
                   <label key={it.productId} className={`flex items-center gap-2 text-xs ${wouldExceed ? 'opacity-40' : 'cursor-pointer'}`}>
                     <input
@@ -1142,7 +1144,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
               <CalcRow label="仕入原価合計" value="" />
               <CalcRow label={`¥${fmt(sizing.minLotPrice)} × ${fmt(sizing.maxLots)}`} value={`¥${fmt(sizing.costTotal)}`} indent />
               <CalcRow label="掲載卸売価格" value="" />
-              <CalcRow label={`(¥${fmt(sizing.costTotal)} + ¥${fmt(sizingSettings.salesAdd)}) × ${sizingSettings.profitCoef}`} value={`¥${fmt(sizing.wholesale)}`} indent />
+              <CalcRow label={`¥${fmt(sizing.costTotal)} ÷ ${wholesaleDivisorFromSetting(sizingSettings.profitCoef)}`} value={`¥${fmt(sizing.costTotal / wholesaleDivisorFromSetting(sizingSettings.profitCoef))}`} indent />
+              <CalcRow label={`+ ¥${fmt(sizingSettings.salesAdd)}`} value={`¥${fmt(sizing.wholesale)}`} indent />
               <CalcRow label="掲載単価" value="" />
               <CalcRow
                 label={`¥${fmt(sizing.wholesale)} ÷ ${fmt(sizing.leafQty)}個`}

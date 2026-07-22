@@ -13,7 +13,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/client';
-import { sizeAssortV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
+import { DEFAULT_V2_SETTINGS, sizeAssortV2, type SizingV2Settings } from '@/lib/calc/sizing-v2';
 import { groupProducts, type ProductForGrouping } from '@/lib/assort/grouping';
 
 export async function POST(req: NextRequest) {
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
 
   // 設定取得
   const { data: settingsRows } = await supabase.from('app_settings').select('key, value');
-  const s: SizingV2Settings = { profitCoef: 1.25, salesAdd: 3000, unitPriceCap: 1000, costCap: 33000, halfBase: 16500 };
+  const s: SizingV2Settings = { ...DEFAULT_V2_SETTINGS };
   for (const row of settingsRows ?? []) {
     if (row.key === 'profit_coef') s.profitCoef = row.value;
     if (row.key === 'sales_add') s.salesAdd = row.value;
