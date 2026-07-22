@@ -22,7 +22,7 @@ function loginUrl(req: NextRequest): URL {
   return url;
 }
 
-export async function proxy(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   if (!isAuthEnabled() || isPublicPath(req.nextUrl.pathname)) {
     return NextResponse.next();
   }
