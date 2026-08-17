@@ -380,7 +380,20 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       const next = { ...cur };
       for (const l of leaflets) {
         const curEdit = cur[l.id];
-        if (!curEdit) continue;
+        if (!curEdit) {
+          next[l.id] = {
+            leafName: l.leafName,
+            leadTime: l.leadTime,
+            note: l.note ?? l.aiSubCopy ?? '',
+            mainCopy: l.mainCopyOverride ?? l.aiMainCopy ?? '',
+            productCode: l.productCode ?? '',
+            pjNo: l.pjNo ?? '',
+            pieceSize: l.pieceSize ?? l.items[0]?.pieceSize ?? '',
+            shelfLifeDays: l.shelfLifeDays != null ? String(l.shelfLifeDays) : '',
+          };
+          changed = true;
+          continue;
+        }
         const prev = prevById.get(l.id);
         const newMainCopy = l.mainCopyOverride ?? l.aiMainCopy ?? '';
         const oldMainCopy = prev ? (prev.mainCopyOverride ?? prev.aiMainCopy ?? '') : newMainCopy;
@@ -404,8 +417,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   }, [leaflets]);
 
   const selected = leaflets.find((l) => l.id === selectedId) ?? leaflets[0];
-  const edit = edits[selected.id];
-  const sel = assortSel[selected.id];
+  const edit = edits[selected.id] ?? { leafName: '', leadTime: '', note: '', mainCopy: '', productCode: '', pjNo: '', pieceSize: '', shelfLifeDays: '' };
+  const sel = assortSel[selected.id] ?? Object.fromEntries(selected.items.map((it) => [it.productId, it.ratio]));
 
   // 全商品の参照マップ（productId → 商品情報）
   const productById = useMemo(() => {
@@ -490,11 +503,16 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     });
   }
   function setRatio(productId: string, ratio: number) {
-    setAssortSel((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], [productId]: ratio } }));
+    setAssortSel((prev) => {
+      const fallback = Object.fromEntries(selected.items.map((it) => [it.productId, it.ratio]));
+      const cur = { ...(prev[selected.id] ?? fallback) };
+      return { ...prev, [selected.id]: { ...cur, [productId]: ratio } };
+    });
   }
   function toggleCompat(item: WorkbenchItem, on: boolean) {
     setAssortSel((prev) => {
-      const cur = { ...prev[selected.id] };
+      const fallback = Object.fromEntries(selected.items.map((it) => [it.productId, it.ratio]));
+      const cur = { ...(prev[selected.id] ?? fallback) };
       if (on) cur[item.productId] = 1;
       else delete cur[item.productId];
       return { ...prev, [selected.id]: cur };
