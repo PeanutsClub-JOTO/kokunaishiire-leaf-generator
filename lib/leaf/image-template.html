@@ -373,10 +373,46 @@
     letter-spacing: 0.05em;
   }
   .draft-badge.hidden { display: none; }
+
+  /* ─── アソートモード: 情報バー縦拡張 + 商品名リスト ─── */
+  .leaf.assort .info-bar {
+    height: 160px;
+  }
+  .leaf.assort .product-area {
+    bottom: 160px;
+  }
+  /* アソート構成品名リスト */
+  .assort-names {
+    display: none;
+    position: absolute;
+    left: 20px;
+    top: 84px;
+    width: 570px;
+    height: 28px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #333;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .leaf.assort .assort-names {
+    display: block;
+  }
+  .assort-names .item-bullet {
+    display: inline-block;
+    margin-right: 14px;
+  }
+  .assort-names .item-bullet::before {
+    content: "▶";
+    color: var(--accent-strong);
+    font-size: 10px;
+    margin-right: 4px;
+  }
 </style>
 </head>
 <body>
-<div class="leaf {{THEME_CLASS}}">
+<div class="leaf {{THEME_CLASS}} {{ASSORT_CLASS}}">
 
   <!-- AI生成背景 or CSSストライプのみ -->
   <div class="leaf-bg" style="{{AI_BG_STYLE}}"></div>
@@ -399,6 +435,7 @@
   <footer class="info-bar">
     <div class="product-code">{{PRODUCT_CODE}}</div>
     <div class="product-name js-fit" data-min-font="16">{{LEAF_NAME}}</div>
+    <div class="assort-names">{{ASSORT_NAMES_HTML}}</div>
 
     <div class="metrics">
       <div class="metric">

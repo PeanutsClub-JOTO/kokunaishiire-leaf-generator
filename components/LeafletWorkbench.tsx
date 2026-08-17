@@ -217,6 +217,12 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
   const aiBgStyle = leaf.aiBackgroundUrl
     ? `background-image:url('${esc(leaf.aiBackgroundUrl)}');background-size:cover;background-position:center;opacity:0.92;`
     : '';
+  // アソートモード
+  const assortClass = isAssort ? 'assort' : '';
+  // アソート構成品名リスト HTML
+  const assortNamesHtml = isAssort
+    ? items.map((i) => `<span class="item-bullet">${esc(i.productName)}</span>`).join('')
+    : '';
   return tpl
     .replaceAll('{{FONT_URL}}', '')
     .replaceAll('{{AI_BG_STYLE}}', aiBgStyle)
@@ -224,11 +230,12 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
     .replaceAll('{{THEME_LABEL}}', esc(theme.label))
     .replaceAll('{{MAIN_COPY}}', esc(mainCopyOverride.trim() || mainCopy(items)))
     .replaceAll('{{SALES_COPY}}', esc(leaf.note?.trim() ? leaf.note : salesCopy(items)))
-    .replaceAll('{{ASSORT_CLASS}}', isAssort ? 'assort' : '')
+    .replaceAll('{{ASSORT_CLASS}}', assortClass)
     .replaceAll('{{HERO_IMAGE_HTML}}', hero)
     .replaceAll('{{SUB_IMAGE_HTML}}', imgs[0] ? `<img src="${esc(imgs[0])}" alt="" />` : '')
     .replaceAll('{{PRODUCT_AREA_CLASS}}', areaClass)
     .replaceAll('{{PRODUCT_IMAGES_HTML}}', imagesHtml)
+    .replaceAll('{{ASSORT_NAMES_HTML}}', assortNamesHtml)
     .replaceAll('{{DRAFT_CLASS}}', '')
     .replaceAll('{{STATUS_LABEL}}', '')
     .replaceAll('{{STATUS_NOTE}}', '')

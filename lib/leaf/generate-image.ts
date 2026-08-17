@@ -267,15 +267,28 @@ export function buildLeafImageHtml(
   // ユーザー入力のセールスコピー(note)を最優先、無ければAI生成サブコピー
   const salesCopy = cleanText(data.note) || cleanText(data.catchphrase?.sub_copy);
 
+  // アソートモード判定
+  const isAssort = data.itemCount >= 2 || (data.productNames?.length ?? 0) >= 2;
+  const assortClass = isAssort ? 'assort' : '';
+  // アソート構成品名リスト HTML（単品は空）
+  const assortNamesHtml =
+    isAssort && data.productNames && data.productNames.length > 0
+      ? data.productNames
+          .map((n) => `<span class="item-bullet">${escapeHtml(n)}</span>`)
+          .join('')
+      : '';
+
   return templateHtml
     .replaceAll('{{FONT_URL}}', fontUrl)
     .replaceAll('{{THEME_CLASS}}', theme.className)
     .replaceAll('{{THEME_LABEL}}', escapeHtml(theme.label))
+    .replaceAll('{{ASSORT_CLASS}}', assortClass)
     .replaceAll('{{AI_BG_STYLE}}', aiBgStyle)
     .replaceAll('{{MAIN_COPY}}', escapeHtml(mainCopy))
     .replaceAll('{{SALES_COPY}}', escapeHtml(salesCopy))
     .replaceAll('{{PRODUCT_AREA_CLASS}}', areaClass)
     .replaceAll('{{PRODUCT_IMAGES_HTML}}', imagesHtml)  // エスケープ不要（img タグを含むため）
+    .replaceAll('{{ASSORT_NAMES_HTML}}', assortNamesHtml)
     .replaceAll('{{DRAFT_CLASS}}', isDraft ? '' : 'hidden')
     .replaceAll('{{STATUS_LABEL}}', isDraft ? '仮リーフ' : '確認済み')
     .replaceAll('{{PRODUCT_CODE}}', escapeHtml(productCode))

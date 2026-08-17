@@ -23,8 +23,16 @@ export async function handleRenderLeafletImage(
 
   // AI生成（失敗してもルールベースにフォールバック）
   const theme = selectLeafTheme(leafData);
-  const category = detectCategory(leafData.leafName);
-  const flavor = flavorOf(leafData.leafName);
+  // アソート時は構成商品それぞれの名前からカテゴリ・フレーバーを計算してまとめる。
+  // leafData.leafName（合体品名）だけだと1商品目の情報しか反映されないため。
+  const allProductNames =
+    leafData.productNames && leafData.productNames.length > 0
+      ? leafData.productNames
+      : [leafData.leafName];
+  const categorySet = [...new Set(allProductNames.map((n) => detectCategory(n)))];
+  const flavorSet = [...new Set(allProductNames.map((n) => flavorOf(n)).filter(Boolean))];
+  const category = categorySet.join('・');
+  const flavor = flavorSet.join('・') || flavorOf(leafData.leafName);
 
   // 背景は一度良いものが生成されたら使い回す。テキスト編集の保存のたびに
   // ランダムな新しい背景に置き換わってしまうと、せっかく気に入った背景が
