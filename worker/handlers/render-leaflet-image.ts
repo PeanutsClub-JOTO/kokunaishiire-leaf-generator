@@ -49,6 +49,7 @@ export async function handleRenderLeafletImage(
       category,
       flavor,
       itemCount: leafData.itemCount,
+      productNames: leafData.productNames,
       note: leafData.note,
       leadTime: leafData.leadTime,
     }),

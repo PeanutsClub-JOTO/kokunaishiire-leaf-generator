@@ -26,6 +26,7 @@ export async function generateCatchphrase(data: {
   category: string;
   flavor: string;
   itemCount: number;
+  productNames?: string[];
   note?: string | null;
   leadTime?: string;
 }): Promise<Catchphrase | null> {
@@ -33,7 +34,7 @@ export async function generateCatchphrase(data: {
   if (!apiKey) return null;
 
   const isAssort = data.itemCount >= 2;
-  const assortNames = isAssort ? data.leafName.split(/[・＆&]/).map((s) => s.trim()).filter(Boolean) : [];
+  const assortNames = isAssort && data.productNames?.length ? data.productNames : (isAssort ? data.leafName.split(/[・＆&]/).map((s) => s.trim()).filter(Boolean) : []);
   const season = seasonFromLeadTime(data.leadTime ?? '');
 
   const prompt = `あなたはゲームセンター景品の販促リーフレットのコピーライターです。

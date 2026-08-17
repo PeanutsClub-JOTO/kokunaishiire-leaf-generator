@@ -679,10 +679,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       // 作成された新リーフに画像/キャッチコピー調整を引き継いでから画像生成を依頼
       if (data.leaflet?.id) {
         const overrides = buildOverridesPayload();
-        const mainCopy = edit.mainCopy.trim();
         const patchBody: Record<string, unknown> = {};
         if (Object.keys(overrides).length > 0) patchBody.image_overrides = overrides;
-        if (mainCopy) patchBody.main_copy_override = mainCopy;
         if (Object.keys(patchBody).length > 0) {
           await fetch(`/api/leaflets/${data.leaflet.id}`, {
             method: 'PATCH',
