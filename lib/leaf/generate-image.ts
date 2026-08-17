@@ -278,6 +278,19 @@ export function buildLeafImageHtml(
           .join('')
       : '';
 
+  let displayNameHtml = escapeHtml(cleanText(data.leafName) || '商品名未設定');
+  if (isAssort && assortNamesHtml) {
+    const defaultName = data.productNames?.[0];
+    const isCustomName = data.leafName && data.leafName !== defaultName;
+    if (isCustomName) {
+      // If the user customized the leaf name, show both the custom name and the assort names
+      displayNameHtml = `<div>${escapeHtml(data.leafName)}</div><div class="assort-names-inline" style="font-size: 0.7em; display: block; margin-top: 4px;">${assortNamesHtml}</div>`;
+    } else {
+      // Otherwise, just show the assort names
+      displayNameHtml = `<div class="assort-names-inline">${assortNamesHtml}</div>`;
+    }
+  }
+
   return templateHtml
     .replaceAll('{{FONT_URL}}', fontUrl)
     .replaceAll('{{THEME_CLASS}}', theme.className)
@@ -288,11 +301,10 @@ export function buildLeafImageHtml(
     .replaceAll('{{SALES_COPY}}', escapeHtml(salesCopy))
     .replaceAll('{{PRODUCT_AREA_CLASS}}', areaClass)
     .replaceAll('{{PRODUCT_IMAGES_HTML}}', imagesHtml)  // エスケープ不要（img タグを含むため）
-    .replaceAll('{{ASSORT_NAMES_HTML}}', assortNamesHtml)
     .replaceAll('{{DRAFT_CLASS}}', isDraft ? '' : 'hidden')
     .replaceAll('{{STATUS_LABEL}}', isDraft ? '仮リーフ' : '確認済み')
     .replaceAll('{{PRODUCT_CODE}}', escapeHtml(productCode))
-    .replaceAll('{{LEAF_NAME}}', escapeHtml(cleanText(data.leafName) || '商品名未設定'))
+    .replaceAll('{{DISPLAY_NAME_HTML}}', displayNameHtml)
     .replaceAll('{{ITEM_COUNT}}', formatInteger(data.itemCount))
     .replaceAll('{{LEAF_QTY}}', formatInteger(data.leafQty))
     .replaceAll('{{WHOLESALE_PRICE}}', formatInteger(data.wholesalePrice))

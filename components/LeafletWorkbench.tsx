@@ -223,6 +223,17 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
   const assortNamesHtml = isAssort
     ? items.map((i) => `<span class="item-bullet">${esc(i.productName)}</span>`).join('')
     : '';
+
+  let displayNameHtml = esc(leaf.leafName || leafName);
+  if (isAssort && assortNamesHtml) {
+    const defaultName = items[0]?.productName;
+    const isCustomName = leaf.leafName && leaf.leafName !== defaultName;
+    if (isCustomName) {
+      displayNameHtml = `<div>${esc(leaf.leafName)}</div><div class="assort-names-inline" style="font-size: 0.7em; display: block; margin-top: 4px;">${assortNamesHtml}</div>`;
+    } else {
+      displayNameHtml = `<div class="assort-names-inline">${assortNamesHtml}</div>`;
+    }
+  }
   return tpl
     .replaceAll('{{FONT_URL}}', '')
     .replaceAll('{{AI_BG_STYLE}}', aiBgStyle)
@@ -235,12 +246,11 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
     .replaceAll('{{SUB_IMAGE_HTML}}', imgs[0] ? `<img src="${esc(imgs[0])}" alt="" />` : '')
     .replaceAll('{{PRODUCT_AREA_CLASS}}', areaClass)
     .replaceAll('{{PRODUCT_IMAGES_HTML}}', imagesHtml)
-    .replaceAll('{{ASSORT_NAMES_HTML}}', assortNamesHtml)
     .replaceAll('{{DRAFT_CLASS}}', '')
     .replaceAll('{{STATUS_LABEL}}', '')
     .replaceAll('{{STATUS_NOTE}}', '')
     .replaceAll('{{PRODUCT_CODE}}', esc(leaf.productCode?.trim() || '商品コード未設定'))
-    .replaceAll('{{LEAF_NAME}}', esc(leaf.leafName || leafName))
+    .replaceAll('{{DISPLAY_NAME_HTML}}', displayNameHtml)
     .replaceAll('{{ITEM_COUNT}}', fmt(items.length))
     .replaceAll('{{LEAF_QTY}}', fmt(sizing.leafQty))
     .replaceAll('{{WHOLESALE_PRICE}}', fmt(sizing.wholesale))
