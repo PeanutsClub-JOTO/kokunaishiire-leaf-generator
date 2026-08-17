@@ -672,7 +672,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             body: JSON.stringify(patchBody),
           });
         }
-        await fetch(`/api/leaflets/${data.leaflet.id}/image`, { method: 'POST' });
+        await fetch(`/api/leaflets/${data.leaflet.id}/background`, { method: 'POST' });
+        setSelectedId(data.leaflet.id);
       }
       setMessage('アソートリーフを作成し、画像生成を依頼しました。');
       router.refresh();
