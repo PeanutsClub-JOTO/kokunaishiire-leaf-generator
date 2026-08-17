@@ -99,6 +99,7 @@ export default async function LeafletsWorkbenchPage({ params }: PageProps) {
       aiSubCopy: leaf.ai_sub_copy ?? null,
       productCode: leaf.product_code ?? null,
       pjNo: leaf.pj_no ?? null,
+      pieceSize: leaf.piece_size ?? null,
       items: items.map((it) => {
         const p = Array.isArray(it.products) ? it.products[0] : it.products;
         return {

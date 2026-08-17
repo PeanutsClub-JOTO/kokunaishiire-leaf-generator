@@ -206,10 +206,9 @@ drive_url / drive_export_status を更新
 
 ```text
 APP_ACCESS_PASSWORD=
-APP_AUTH_SECRET=
 ```
 
-互換用として `SITE_PASSWORD` と `BASIC_AUTH_PASSWORD` も参照します。`APP_ACCESS_PASSWORD` が未設定の場合、認証ゲートは無効になります。
+現在の本番運用では `APP_ACCESS_PASSWORD` のみを設定しています。`APP_ACCESS_PASSWORD` が未設定の場合、認証ゲートは無効になります。
 
 ## 非同期ワーカー
 
@@ -331,7 +330,6 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
 APP_ACCESS_PASSWORD=
-APP_AUTH_SECRET=
 
 GEMINI_API_KEY=
 LLM_MODEL=gemini-3.1-flash-lite

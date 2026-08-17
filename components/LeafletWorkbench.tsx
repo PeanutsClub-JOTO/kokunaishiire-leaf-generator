@@ -60,6 +60,8 @@ export type WorkbenchLeaflet = {
   productCode: string | null;
   /** PJ番号（社員番号） */
   pjNo: string | null;
+  /** 商品サイズ（ピース寸法）- リーフレベルの上書き値 */
+  pieceSize: string | null;
   /** { [productId]: { scale, x, y } } 商品画像の拡大率・位置調整 */
   imageOverrides: Record<string, { scale?: number; x?: number; y?: number }> | null;
   items: WorkbenchItem[];
@@ -202,7 +204,7 @@ function productImagesHtml(items: WorkbenchItem[], imgOv: Record<string, ImgOv>)
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 // テンプレートにデータを差し込んで HTML を生成
-function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], sizing: Sizing, imgOv: Record<string, ImgOv> = {}, mainCopyOverride = ''): string {
+function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], sizing: Sizing, imgOv: Record<string, ImgOv> = {}, mainCopyOverride = '', pieceSizeOverride?: string | null): string {
   const leafName = items.map((i) => i.productName).join('・');
   const theme = selectTheme(leafName);
   const imgs = items.map((i) => i.imageUrl).filter(Boolean) as string[];
@@ -211,7 +213,7 @@ function buildHtml(tpl: string, leaf: WorkbenchLeaflet, items: WorkbenchItem[], 
   const hero = isAssort
     ? `<div class="assort-grid">${imgs.slice(0, 4).map((s) => `<img src="${esc(s)}" alt="" />`).join('')}</div>`
     : imgs[0] ? `<img class="hero-image" src="${esc(imgs[0])}" alt="" />` : '<div class="image-placeholder">商品画像未設定</div>';
-  const pieceSize = items[0]?.pieceSize ?? null;
+  const pieceSize = pieceSizeOverride !== undefined ? pieceSizeOverride : (items[0]?.pieceSize ?? null);
   const aiBgStyle = leaf.aiBackgroundUrl
     ? `background-image:url('${esc(leaf.aiBackgroundUrl)}');background-size:cover;background-position:center;opacity:0.92;`
     : '';
@@ -251,7 +253,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   const router = useRouter();
   const [selectedId, setSelectedId] = useState(leaflets[0]?.id ?? '');
   // キャッチ/セールスコピーは AI生成文を初期値として編集欄に出す（自由に修正→保存できる）
-  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string; pjNo: string }>>(() =>
+  const [edits, setEdits] = useState<Record<string, { leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string; pjNo: string; pieceSize: string; shelfLifeDays: string }>>(() =>
     Object.fromEntries(leaflets.map((l) => [l.id, {
       leafName: l.leafName,
       leadTime: l.leadTime,
@@ -259,6 +261,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
       mainCopy: l.mainCopyOverride ?? l.aiMainCopy ?? '',
       productCode: l.productCode ?? '',
       pjNo: l.pjNo ?? '',
+      pieceSize: l.pieceSize ?? l.items[0]?.pieceSize ?? '',
+      shelfLifeDays: l.shelfLifeDays != null ? String(l.shelfLifeDays) : '',
     }])),
   );
   // アソート選択: ベースリーフID → { productId: ratio }（ベース商品を必ず含む）
@@ -429,14 +433,18 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
   const calcSizingRaw = useMemo(() => calcSizing(editedItems, sizingSettings), [editedItems, sizingSettings]);
   const calcOv = calcOverrides[selected.id];
   const sizing = useMemo(() => applyCalcOverride(calcSizingRaw, calcOv), [calcSizingRaw, calcOv]);
+  const editPieceSize = edit.pieceSize || null;
+  const editShelfLifeDays = edit.shelfLifeDays !== '' && Number.isFinite(Number(edit.shelfLifeDays)) ? Number(edit.shelfLifeDays) : selected.shelfLifeDays;
   const leafForPreview = useMemo<WorkbenchLeaflet>(
-    () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, productCode: edit.productCode, pjNo: edit.pjNo, isSingle: !isAssort }),
-    [selected, edit, isAssort],
+    () => ({ ...selected, leafName: edit.leafName, leadTime: edit.leadTime, note: edit.note, productCode: edit.productCode, pjNo: edit.pjNo, isSingle: !isAssort, shelfLifeDays: editShelfLifeDays }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selected, edit, isAssort, editShelfLifeDays],
   );
   const imgOv = useMemo<Record<string, ImgOv>>(() => imgOvMap[selected.id] ?? {}, [imgOvMap, selected.id]);
   const previewHtml = useMemo(
-    () => buildHtml(templateHtml, leafForPreview, editedItems, sizing, imgOv, edit.mainCopy),
-    [templateHtml, leafForPreview, editedItems, sizing, imgOv, edit.mainCopy],
+    () => buildHtml(templateHtml, leafForPreview, editedItems, sizing, imgOv, edit.mainCopy, editPieceSize),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [templateHtml, leafForPreview, editedItems, sizing, imgOv, edit.mainCopy, editPieceSize],
   );
 
   // 画像調整の対象商品（アソート時はタブで選択、単品は先頭）
@@ -454,7 +462,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     return out;
   }
 
-  function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string; pjNo: string }>) {
+  function patchEdit(patch: Partial<{ leafName: string; leadTime: string; note: string; mainCopy: string; productCode: string; pjNo: string; pieceSize: string; shelfLifeDays: string }>) {
     setEdits((prev) => ({ ...prev, [selected.id]: { ...prev[selected.id], ...patch } }));
   }
   function setImgOv(productId: string, patch: Partial<ImgOv>) {
@@ -536,6 +544,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
     setMessage('');
     try {
       await persistItemEdits();
+      const shelfLifeDaysNum = edit.shelfLifeDays !== '' && Number.isFinite(Number(edit.shelfLifeDays)) ? Number(edit.shelfLifeDays) : null;
       const patchRes = await fetch(`/api/leaflets/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -552,6 +561,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           wholesale_price: sizing.wholesale,
           cost_total: sizing.costTotal,
           is_half_ok: sizing.isHalfOk,
+          piece_size: edit.pieceSize.trim() || null,
+          shelf_life_days: shelfLifeDaysNum,
         }),
       });
       const patchData = await patchRes.json().catch(() => ({}));
@@ -670,6 +681,7 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
 
       await persistItemEdits();
       // 確定前に計算値の上書きも保存しておく（finalize APIは leaflets 更新をしないため）
+      const shelfLifeDaysForFinalize = edit.shelfLifeDays !== '' && Number.isFinite(Number(edit.shelfLifeDays)) ? Number(edit.shelfLifeDays) : null;
       await fetch(`/api/leaflets/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -679,6 +691,8 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           wholesale_price: sizing.wholesale,
           cost_total: sizing.costTotal,
           is_half_ok: sizing.isHalfOk,
+          piece_size: edit.pieceSize.trim() || null,
+          shelf_life_days: shelfLifeDaysForFinalize,
         }),
       });
       const res = await fetch(`/api/leaflets/${selected.id}/finalize`, {
@@ -867,6 +881,27 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
             onChange={(e) => patchEdit({ leadTime: e.target.value })}
             className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
           />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs font-medium text-zinc-500 mb-1">商品サイズ（mm）</label>
+            <input
+              value={edit.pieceSize}
+              onChange={(e) => patchEdit({ pieceSize: e.target.value })}
+              placeholder="例: 120×80×30"
+              className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-500 mb-1">賞味期限（日）</label>
+            <input
+              value={edit.shelfLifeDays}
+              onChange={(e) => patchEdit({ shelfLifeDays: e.target.value })}
+              inputMode="numeric"
+              placeholder="例: 180"
+              className="w-full rounded border border-zinc-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            />
+          </div>
         </div>
 
         {/* アソート可能な仲間（複数選択でアソート化） */}
@@ -1199,14 +1234,12 @@ export default function LeafletWorkbench({ quotationId, leaflets, templateHtml, 
           {selected.status === 'final' ? (
             <>
               <div className="rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
-                確定済み。確定リーフ一覧に3日間表示されます。
+                確定済み。「情報を保存」で内容を変更してから、再確定することもできます。
               </div>
-              {selected.driveExportStatus !== 'done' && (
-                <button onClick={handleFinalize} disabled={saving || !selected.leafImageUrl}
-                  className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
-                  {saving ? '転送中…' : 'Driveへ再送する'}
-                </button>
-              )}
+              <button onClick={handleFinalize} disabled={saving || !selected.leafImageUrl}
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+                {saving ? '転送中…' : '再確定してDriveへ送る'}
+              </button>
             </>
           ) : isTemporaryAssort ? (
             <p className="rounded-lg bg-zinc-50 px-3 py-2 text-xs text-zinc-500">

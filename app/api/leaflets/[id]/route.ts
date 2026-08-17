@@ -55,6 +55,10 @@ export async function PATCH(
     wholesale_price?: number | null;
     cost_total?: number | null;
     is_half_ok?: boolean | null;
+    /** 商品サイズ（ピース寸法） */
+    piece_size?: string | null;
+    /** 賞味期限（日） */
+    shelf_life_days?: number | null;
   };
 
   const { data, error } = await supabase
